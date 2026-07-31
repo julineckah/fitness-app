@@ -77,13 +77,12 @@ Vráť VÝHRADNE JSON formát. Žiadny text okolo, žiadne formátovanie ```json
     try:
         with st.spinner("🧠 AI analyzuje a počíta makrá..."):
             try:
-                # Najprv skúsime najnovšiu flash verziu
-                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                # Používame najnovší a najsilnejší model Gemini 2.5 Flash
+                model = genai.GenerativeModel('gemini-2.5-flash')
                 response = model.generate_content(sys_prompt + "\n\nZadanie: " + prompt_text)
-            except Exception:
-                # Ak zlyhá (napr. kvôli regiónu), použijeme stabilný základný model
-                model = genai.GenerativeModel('gemini-pro')
-                response = model.generate_content(sys_prompt + "\n\nZadanie: " + prompt_text)
+            except Exception as model_err:
+                st.error(f"⚠️ Problém s AI modelom: {model_err}")
+                return None
                 
             clean_text = response.text.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_text)
