@@ -63,7 +63,6 @@ def call_gemini(prompt_text):
         st.error("⚠️ Knižnica google-generativeai nie je nainštalovaná.")
         return None
         
-    model = genai.GenerativeModel('gemini-1.5-flash')
     sys_prompt = """Si nutričný expert. Vypočítaj kalórie a makroživiny.
 Vráť VÝHRADNE JSON formát. Žiadny text okolo, žiadne formátovanie ```json. Len čistý JSON objekt.
 Štruktúra:
@@ -77,7 +76,15 @@ Vráť VÝHRADNE JSON formát. Žiadny text okolo, žiadne formátovanie ```json
 }"""
     try:
         with st.spinner("🧠 AI analyzuje a počíta makrá..."):
-            response = model.generate_content(sys_prompt + "\n\nZadanie: " + prompt_text)
+            try:
+                # Najprv skúsime najnovšiu flash verziu
+                model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                response = model.generate_content(sys_prompt + "\n\nZadanie: " + prompt_text)
+            except Exception:
+                # Ak zlyhá (napr. kvôli regiónu), použijeme stabilný základný model
+                model = genai.GenerativeModel('gemini-pro')
+                response = model.generate_content(sys_prompt + "\n\nZadanie: " + prompt_text)
+                
             clean_text = response.text.replace("```json", "").replace("```", "").strip()
             data = json.loads(clean_text)
             
