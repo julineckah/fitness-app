@@ -48,7 +48,7 @@ if 'custom_foods' not in st.session_state:
 
 st.sidebar.title("🧠 AI Nastavenia")
 st.sidebar.markdown("Aby AI fungovala, získaj bezplatný kľúč na [aistudio.google.com](https://aistudio.google.com) a vlož ho sem.")
-api_key = st.sidebar.text_input("Gemini API Key:", type="password")
+api_key = st.sidebar.text_input("Gemini API Key:", type="password").strip()
 
 if api_key and HAS_GENAI:
     genai.configure(api_key=api_key)
