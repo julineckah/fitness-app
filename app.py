@@ -108,6 +108,7 @@ def get_gemini_model():
 def call_gemini(query):
     prompt = f"""
     Zisti presné nutričné hodnoty pre túto surovinu/jedlo: "{query}".
+    ⚠️ KRITICKÉ PRAVIDLO: Ak používateľ zadá KONKRÉTNU ZNAČKU a produkt (napríklad "Vilgain proteínová tyčinka Double Chocolate"), NEHÁDAJ. Použi presné oficiálne nutričné hodnoty od výrobcu pre daný produkt, ktoré máš v pamäti.
     Vráť IBA čistý JSON formát s kľúčmi: name, kcal, protein, carbs, fats, fiber. Hodnoty nech sú čísla (float/int). Žiadny iný text.
     Príklad: {{"name": "100g Tofu", "kcal": 76.0, "protein": 8.0, "carbs": 1.9, "fats": 4.8, "fiber": 0.3}}
     """
@@ -132,7 +133,9 @@ def call_gemini(query):
 def analyze_meal_to_recipe(meal_desc):
     prompt = f"""
     Zanalyzuj toto jedlo: "{meal_desc}". 
-    Rozdeľ ho na jednotlivé suroviny. Pre každú surovinu odhadni kalórie (kcal) a makroživiny v gramoch (protein, carbs, fats, fiber) pre to konkrétne odhadované množstvo v porcii.
+    Rozdeľ ho na jednotlivé suroviny. 
+    ⚠️ KRITICKÉ PRAVIDLO: Ak používateľ zadá KONKRÉTNU ZNAČKU a produkt (napríklad "Vilgain proteínová tyčinka Double Chocolate", "Rajo cottage cheese"), NEHÁDAJ. Použi presné oficiálne nutričné hodnoty od výrobcu pre daný produkt.
+    Pre ostatné bežné suroviny odhadni kalórie (kcal) a makroživiny (protein, carbs, fats, fiber) v gramoch pre to konkrétne odhadované množstvo v porcii.
     Vráť PRÍSNY JSON vo formáte:
     {{
         "ingredients": [
@@ -188,15 +191,12 @@ with tab1:
     # Kalendár pre výber dňa
     col_date, _ = st.columns([1, 1])
     with col_date:
-        # Prevod stringu na date objekt pre widget
         default_date = datetime.strptime(st.session_state.current_date_str, "%Y-%m-%d").date()
         selected_date = st.date_input("📅 Vyber si deň:", default_date)
         
-    # Aktualizácia aktuálneho dňa v systéme
     date_str = selected_date.strftime("%Y-%m-%d")
     st.session_state.current_date_str = date_str
     
-    # Zabezpečenie, že tento deň existuje v databáze
     if date_str not in st.session_state.daily_logs:
         st.session_state.daily_logs[date_str] = {"consumed": {"kcal": 0, "protein": 0, "carbs": 0, "fats": 0, "fiber": 0}, "history": []}
         save_db()
@@ -206,7 +206,6 @@ with tab1:
     st.subheader("🍽️ Pridať do tohto dňa")
     colA, colB, colC = st.columns([2, 1, 1])
     with colA:
-        # Streamlit selectbox defaultne podporuje VYHĽADÁVANIE (stačí do neho začať písať)
         selected_food = st.selectbox("Začni písať pre vyhľadanie jedla:", ["(Nevybraté)"] + list(st.session_state.custom_foods.keys()))
     with colB:
         meal_type = st.selectbox("Druh:", ["Raňajky", "Obed", "Večera", "Snack"])
@@ -279,16 +278,16 @@ with tab1:
 
 with tab2:
     st.subheader("✨ AI Zápisník")
-    st.write("Zjedla si niečo úplne mimo plánu? AI ti to rozanalyzuje, pripočíta do dnešného dňa a ak chceš, rovno to uloží ako trvalý recept!")
+    st.write("Zjedla si niečo úplne mimo plánu (napr. špecifickú proteínovú tyčinku)? AI ti to zanalyzuje a môžeš to rovno uložiť!")
     
-    ai_meal = st.text_area("Napr.: '150g losos s hrstou ryže a brokolicou. Ako dezert 1 jablko.'", height=100)
+    ai_meal = st.text_area("Napr.: '150g losos s hrstou ryže a brokolicou' alebo '1 Vilgain proteínová tyčinka Double Chocolate'.", height=100)
     
     if st.button("✨ Zanalyzovať jedlo"):
         if ai_meal:
             if not st.session_state.gemini_key:
                 st.error("Chýba API kľúč!")
             else:
-                with st.spinner("AI analyzuje tvoje jedlo a suroviny..."):
+                with st.spinner("AI analyzuje tvoje jedlo (a hľadá presné značky)..."):
                     res = analyze_meal_to_recipe(ai_meal)
                     if res and "ingredients" in res:
                         st.session_state.ai_last_meal = res
@@ -310,7 +309,6 @@ with tab2:
             total_f += item['fats']
             total_fib += item['fiber']
             
-            # Pripravíme ingrediencie pre prípadné uloženie
             ing_name = item["name"]
             st.session_state.ingredient_db[ing_name] = {
                 "kcal": item["kcal"], "protein": item["protein"],
@@ -334,18 +332,15 @@ with tab2:
                 
         with col2:
             st.write("**Možnosť B: Uložiť NAVŽDY (Aj zjesť)**")
-            new_recipe_name = st.text_input("Vymysli si názov (napr. Môj top losos):")
+            new_recipe_name = st.text_input("Vymysli si názov (napr. Losos s ryžou):")
             meal_type_ai_save = st.selectbox("A zjesť ho dnes ako:", ["Obed", "Raňajky", "Večera", "Snack"], key="ai_type_save")
             if st.button("💾 Uložiť jedlo + Zjesť"):
                 if new_recipe_name:
-                    # 1. Uložíme do databázy ako recept
                     st.session_state.custom_foods[new_recipe_name] = {
                         "desc": st.session_state.ai_last_meal_name,
                         "ingredients": new_ingredients
                     }
                     save_db()
-                    
-                    # 2. Zároveň ho zjeme
                     add_macros(total_kcal, total_p, total_c, total_f, total_fib, new_recipe_name, meal_type_ai_save, st.session_state.current_date_str)
                     
                     del st.session_state["ai_last_meal"]
@@ -357,17 +352,17 @@ with tab2:
 
 with tab3:
     st.subheader("➕ Vytvoriť nový recept pomocou AI")
-    st.write("Nadiktuj zloženie jedla. AI z neho vyrobí presný recept, ktorý si uložíš do databázy na neskôr.")
+    st.write("Nadiktuj zloženie jedla alebo vymenuj suroviny. AI z neho vyrobí presný recept so všetkými oficiálnymi živinami.")
     
     new_name = st.text_input("Krátky Názov (napr. 'Kuracie rizoto s hráškom'):")
-    new_desc = st.text_area("Rozpíš presné zloženie (napr. '100g kuracie prsia, 50g ryža, lyžička oleja').")
+    new_desc = st.text_area("Rozpíš presné zloženie (napr. '100g kuracie prsia, 50g ryža, 1 Vilgain tyčinka').")
     
     if st.button("✨ Vygenerovať a Trvalo uložiť"):
         if new_name and new_desc:
             if not st.session_state.gemini_key:
                 st.error("Chýba API kľúč!")
             else:
-                with st.spinner("AI buduje tvoj nový recept..."):
+                with st.spinner("AI buduje tvoj nový recept a hľadá presné hodnoty..."):
                     res = analyze_meal_to_recipe(new_desc)
                     if res and "ingredients" in res:
                         new_ingredients = {}
@@ -384,7 +379,7 @@ with tab3:
                             "ingredients": new_ingredients
                         }
                         save_db()
-                        st.success(f"BOMBA! Jedlo '{new_name}' bolo zanalyzované a uložené. Nájdeš ho v 'Môj Deň' alebo v 'Správe jedál'.")
+                        st.success(f"BOMBA! Jedlo '{new_name}' bolo zanalyzované a uložené. Nájdeš ho v 'Správe jedál'.")
                         time.sleep(2)
                         st.rerun()
                     else:
@@ -430,7 +425,6 @@ with tab4:
                     st.error("Chýba API kľúč!")
                 else:
                     with st.spinner(f"Zisťujem hodnoty pre tvoje suroviny..."):
-                        # Použijeme výkonnejšiu funkciu, ktorá zvládne zoznam s čiarkami
                         res = analyze_meal_to_recipe(ai_ing)
                         if res and "ingredients" in res:
                             for item in res["ingredients"]:
@@ -439,7 +433,6 @@ with tab4:
                                     "kcal": item["kcal"], "protein": item["protein"], 
                                     "carbs": item["carbs"], "fats": item["fats"], "fiber": item["fiber"]
                                 }
-                                # Ak náhodou už taká surovina v recepte je, neprepíšeme ju, ale pridáme
                                 if new_name in st.session_state.edit_recipe:
                                     st.session_state.edit_recipe[new_name] += 1.0
                                 else:
@@ -477,11 +470,9 @@ with tab4:
                 st.rerun()
         
         with colB:
-            # Tlačidlo na trvalé vymazanie receptu
             if st.button("🚨 VYMAZAŤ CELÝ RECEPT", type="secondary", use_container_width=True):
                 del st.session_state.custom_foods[edit_food]
                 save_db()
-                # Vyčistenie formulára po zmazaní
                 if "current_edit_food" in st.session_state:
                     del st.session_state["current_edit_food"]
                 st.success("Recept bol trvalo vymazaný z databázy!")
