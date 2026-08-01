@@ -30,7 +30,6 @@ def load_db():
         except:
             pass
             
-    # Úplne predvolené dáta pre prvého používateľa
     today_str = datetime.now().strftime("%Y-%m-%d")
     return {
         "api_key": "",
@@ -423,28 +422,35 @@ with tab4:
         st.session_state.edit_recipe = updated_recipe
 
         st.divider()
-        st.write("**🤖 Pridať novú surovinu do tohto receptu (Cez AI):**")
-        ai_ing = st.text_input("Napr. '1 odmerka proteínu' alebo '150g Tofu'")
-        if st.button("✨ Zistiť živiny a pridať surovinu"):
+        st.write("**🤖 Pridať nové suroviny do tohto receptu (Cez AI):**")
+        ai_ing = st.text_input("Môžeš aj viacero naraz! Napr. '1 odmerka proteínu, 150g Tofu, 1 lyžica chia'")
+        if st.button("✨ Zistiť živiny a pridať do receptu"):
             if ai_ing:
                 if not st.session_state.gemini_key:
                     st.error("Chýba API kľúč!")
                 else:
-                    with st.spinner(f"Zisťujem hodnoty pre: {ai_ing}..."):
-                        ai_data = call_gemini(ai_ing)
-                        if ai_data:
-                            new_name = ai_data["name"]
-                            st.session_state.ingredient_db[new_name] = {
-                                "kcal": ai_data["kcal"], "protein": ai_data["protein"], 
-                                "carbs": ai_data["carbs"], "fats": ai_data["fats"], "fiber": ai_data["fiber"]
-                            }
-                            st.session_state.edit_recipe[new_name] = 1.0
+                    with st.spinner(f"Zisťujem hodnoty pre tvoje suroviny..."):
+                        # Použijeme výkonnejšiu funkciu, ktorá zvládne zoznam s čiarkami
+                        res = analyze_meal_to_recipe(ai_ing)
+                        if res and "ingredients" in res:
+                            for item in res["ingredients"]:
+                                new_name = item["name"]
+                                st.session_state.ingredient_db[new_name] = {
+                                    "kcal": item["kcal"], "protein": item["protein"], 
+                                    "carbs": item["carbs"], "fats": item["fats"], "fiber": item["fiber"]
+                                }
+                                # Ak náhodou už taká surovina v recepte je, neprepíšeme ju, ale pridáme
+                                if new_name in st.session_state.edit_recipe:
+                                    st.session_state.edit_recipe[new_name] += 1.0
+                                else:
+                                    st.session_state.edit_recipe[new_name] = 1.0
+                            
                             save_db()
-                            st.success(f"Surovina pridaná!")
+                            st.success(f"Všetky suroviny úspešne pridané!")
                             time.sleep(1)
                             st.rerun()
                         else:
-                            st.error("Nepodarilo sa nájsť.")
+                            st.error("Nepodarilo sa analyzovať. Skús preformulovať.")
         
         st.divider()
         live_macros = calc_macros(st.session_state.edit_recipe)
