@@ -172,10 +172,8 @@ with st.sidebar:
     st.header("🧠 AI Nastavenia")
     st.write("Tvoj Gemini API kľúč je bezpečne uložený. Nemusíš ho zadávať znova.")
     
-    # Input pre zmenu kľúča
     new_key = st.text_input("Gemini API Key:", value=st.session_state.gemini_key, type="password")
     
-    # Automatické uloženie kľúča, ak sa zmení
     if new_key != st.session_state.gemini_key:
         st.session_state.gemini_key = new_key.strip()
         save_db()
@@ -188,7 +186,6 @@ with st.sidebar:
 tab1, tab2, tab3, tab4 = st.tabs(["📅 Môj Deň", "✨ AI Zápisník", "➕ Nové jedlo", "⚙️ Správa jedál"])
 
 with tab1:
-    # Kalendár pre výber dňa
     col_date, _ = st.columns([1, 1])
     with col_date:
         default_date = datetime.strptime(st.session_state.current_date_str, "%Y-%m-%d").date()
@@ -444,6 +441,34 @@ with tab4:
                             st.rerun()
                         else:
                             st.error("Nepodarilo sa analyzovať. Skús preformulovať.")
+                            
+        st.divider()
+        st.write("**✍️ Alebo pridať špecifickú surovinu RUČNE (z etikety na obale):**")
+        with st.expander("Rozbaliť formulár pre ručné zadanie"):
+            man_name = st.text_input("Názov (napr. 'Vilgain tyčinka Double Trouble 55g')")
+            colK, colP, colC, colF, colFib = st.columns(5)
+            with colK: man_kcal = st.number_input("Kcal", min_value=0.0, step=1.0)
+            with colP: man_p = st.number_input("Bielkoviny", min_value=0.0, step=0.1)
+            with colC: man_c = st.number_input("Sacharidy", min_value=0.0, step=0.1)
+            with colF: man_f = st.number_input("Tuky", min_value=0.0, step=0.1)
+            with colFib: man_fib = st.number_input("Vláknina", min_value=0.0, step=0.1)
+            
+            if st.button("💾 Uložiť ručne a pridať do receptu"):
+                if man_name:
+                    st.session_state.ingredient_db[man_name] = {
+                        "kcal": man_kcal, "protein": man_p,
+                        "carbs": man_c, "fats": man_f, "fiber": man_fib
+                    }
+                    if man_name in st.session_state.edit_recipe:
+                        st.session_state.edit_recipe[man_name] += 1.0
+                    else:
+                        st.session_state.edit_recipe[man_name] = 1.0
+                    save_db()
+                    st.success("Surovina pridaná!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("Musíš zadať názov.")
         
         st.divider()
         live_macros = calc_macros(st.session_state.edit_recipe)
