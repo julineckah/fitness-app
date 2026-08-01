@@ -1,3 +1,4 @@
+# Complete, well-commented, runnable code for this single file
 import streamlit as st
 from datetime import datetime, date
 import google.generativeai as genai
@@ -62,7 +63,6 @@ def load_db():
                         today_str: {"consumed": {"kcal": 0, "protein": 0.0, "carbs": 0.0, "fats": 0.0, "fiber": 0.0}, "history": []}
                     }
                 
-                # Zabezpečenie, že existuje profil
                 if "profile" not in data:
                     data["profile"] = {
                         "gender": "Žena", "age": 28, "weight": 71.0, "height": 175.0,
@@ -99,17 +99,14 @@ def save_db():
 
 db_data = load_db()
 
-# Inicializácia stavov
 if 'gemini_key' not in st.session_state: st.session_state.gemini_key = db_data.get("api_key", "")
 if 'profile' not in st.session_state: st.session_state.profile = db_data.get("profile", {})
 if 'daily_logs' not in st.session_state: st.session_state.daily_logs = db_data.get("daily_logs", {})
 if 'custom_foods' not in st.session_state: st.session_state.custom_foods = db_data.get("custom_foods", {})
 if 'ingredient_db' not in st.session_state: st.session_state.ingredient_db = db_data.get("ingredient_db", {})
 if 'edit_recipe' not in st.session_state: st.session_state.edit_recipe = {}
-if 'show_save_success' not in st.session_state: st.session_state.show_save_success = False
 if 'current_date_str' not in st.session_state: st.session_state.current_date_str = datetime.now().strftime("%Y-%m-%d")
 
-# Dynamický výpočet cieľov pre celý deň
 GOALS = calculate_targets(st.session_state.profile)
 
 def add_macros(kcal, p, c, f, fib, name, meal_type, date_str):
@@ -146,6 +143,7 @@ def get_gemini_model():
     api_key = st.session_state.get("gemini_key", "").strip()
     if not api_key: return None
     genai.configure(api_key=api_key)
+    # Zmena na najnovší stabilný model
     return genai.GenerativeModel('gemini-3.5-flash')
 
 def analyze_meal_to_recipe(meal_desc):
@@ -185,6 +183,7 @@ def analyze_meal_to_recipe(meal_desc):
                 return json.loads(txt)
             except:
                 return None
+        st.error(f"Iná chyba: {e}")
         return None
 
 def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f):
@@ -214,7 +213,7 @@ def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f):
 
 with st.sidebar:
     st.header("🧠 AI Nastavenia")
-    st.write("Tvoj kľúč sa bezpečne ukladá na trvalo.")
+    st.write("Tvoj kľúč sa bezpečne ukladá natrvalo.")
     
     new_key = st.text_input("Gemini API Key:", value=st.session_state.gemini_key, type="password")
     
@@ -224,7 +223,6 @@ with st.sidebar:
         st.success("Kľúč uložený! ✅")
         st.rerun()
 
-# Pridaná 5. záložka pre Profil
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📅 Môj Deň", "✨ AI Zápisník", "➕ Nové jedlo", "⚙️ Správa jedál", "👤 Môj Profil"])
 
 with tab1:
@@ -248,18 +246,41 @@ with tab1:
         selected_food = st.selectbox("Vyhľadaj jedlo z databázy (Začni písať):", ["(Nevybraté)"] + list(st.session_state.custom_foods.keys()))
     with colB:
         meal_type = st.selectbox("Druh:", ["Raňajky", "Obed", "Večera", "Snack"])
+        
+    # Výber porcie
+    portion = st.number_input("Násobok porcie (1.0 = celá)", min_value=0.1, value=1.0, step=0.1, key="portion_selector")
     
     if selected_food != "(Nevybraté)":
         food_data = st.session_state.custom_foods[selected_food]
-        macros = calc_macros(food_data["ingredients"])
-        st.info(f"**Zloženie:** {food_data['desc']}")
-        st.write(f"📊 **Hodnoty:** {round(macros['kcal'],1)} kcal | B: {round(macros['protein'],1)}g | S: {round(macros['carbs'],1)}g | T: {round(macros['fats'],1)}g")
+        base_macros = calc_macros(food_data["ingredients"])
         
+        p_kcal = base_macros['kcal'] * portion
+        p_p = base_macros['protein'] * portion
+        p_c = base_macros['carbs'] * portion
+        p_f = base_macros['fats'] * portion
+        p_fib = base_macros['fiber'] * portion
+        
+        st.info(f"**Zloženie:** {food_data['desc']}")
+        st.write(f"📊 **Hodnoty tvojej porcie ({portion}x):** {round(p_kcal,1)} kcal | B: {round(p_p,1)}g | S: {round(p_c,1)}g | T: {round(p_f,1)}g")
+        
+        # Múdre odporúčanie veľkosti porcie podľa zvyšných kalórií
+        rem_kcal = max(0, GOALS['kcal'] - current_log["consumed"]["kcal"])
+        if base_macros['kcal'] > 0:
+            rec_portion = round(rem_kcal / base_macros['kcal'], 1)
+            
+            if rec_portion <= 0:
+                st.warning("⚠️ Limit naplnený! Zjedením tohto jedla pôjdeš do kalorického prebytku (budeš priberať tuk).")
+            elif portion > rec_portion:
+                st.warning(f"💡 **Tip pre tvoj limit:** Vybrala si si príliš veľkú porciu. Aby si dodržala kalórie na dnes, daj si max **{rec_portion}x** násobok.")
+            else:
+                st.success(f"✅ Skvelé! Táto porcia do tvojho dnešného limitu krásne zapadne (zmestila by sa ti dokonca až {rec_portion}x porcia).")
+
         with colC:
             st.write("") 
             st.write("") 
             if st.button("➕ Zjesť", type="primary", use_container_width=True):
-                add_macros(macros['kcal'], macros['protein'], macros['carbs'], macros['fats'], macros['fiber'], selected_food, meal_type, date_str)
+                meal_name_to_save = selected_food if portion == 1.0 else f"{selected_food} ({portion}x)"
+                add_macros(p_kcal, p_p, p_c, p_f, p_fib, meal_name_to_save, meal_type, date_str)
                 st.success(f"Pridané a trvalo uložené!")
                 time.sleep(1)
                 st.rerun()
@@ -267,7 +288,6 @@ with tab1:
     st.divider()
     st.subheader(f"📊 Prehľad ({selected_date.strftime('%d.%m.%Y')})")
     
-    # Krásne natívne ukazovatele bez orezania!
     c_kcal = current_log["consumed"]["kcal"]
     st.metric(label="🔥 Kalórie (kcal)", value=f"{int(c_kcal)} / {GOALS['kcal']}")
     st.progress(min(c_kcal / GOALS['kcal'] if GOALS['kcal'] else 0, 1.0))
@@ -293,7 +313,6 @@ with tab1:
 
     st.write("")
     
-    # NOVINKA: Múdry AI Radca
     with st.expander("💡 AI Radca: Čo by som mala ešte dnes zjesť?"):
         if st.button("✨ Zistiť tipy podľa chýbajúcich živín"):
             rem_kcal = max(0, GOALS['kcal'] - c_kcal)
@@ -340,7 +359,7 @@ with tab2:
     st.subheader("✨ AI Zápisník")
     st.write("Zanalyzuj jedlo a ak chceš, rovno si ho ulož navždy do databázy.")
     
-    ai_meal = st.text_area("Napr.: '150g losos s ryžou' alebo '1 Vilgain tyčinka Double Chocolate'.", height=100)
+    ai_meal = st.text_area("Napr.: '150g losos s ryžou' alebo '1 Vilgain tyčinka Double Trouble'.", height=100)
     
     if st.button("✨ Zanalyzovať jedlo"):
         if ai_meal:
@@ -503,13 +522,13 @@ with tab4:
         if live_macros["kcal"] > 0:
             protein_pct = (live_macros["protein"] * 4) / live_macros["kcal"]
             if protein_pct < 0.20:
-                st.warning("💡 **Tip:** Toto jedlo má málo bielkovín. Pridaj vyššie surovinu bohatú na bielkoviny.")
+                st.warning("💡 **Tip:** Toto jedlo má málo bielkovín. Pridaj v políčkach vyššie surovinu bohatú na bielkoviny (napr. proteín).")
             else:
                 st.success("✅ Krásne vyvážené jedlo!")
 
         colA, colB = st.columns(2)
         with colA:
-            if st.button("💾 ULOŽIŤ ÚPRAVY", type="primary", use_container_width=True):
+            if st.button("💾 ULOŽIŤ UPRAVENÝ RECEPT", type="primary", use_container_width=True):
                 st.session_state.custom_foods[edit_food]["ingredients"] = st.session_state.edit_recipe.copy()
                 save_db()
                 st.success("Recept uložený!")
