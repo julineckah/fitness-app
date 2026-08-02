@@ -53,7 +53,6 @@ def load_full_db():
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 
-                # AUTOMATICKÁ MIGRÁCIA (Zo starej verzie na Multi-user verziu)
                 if "users" not in data:
                     new_db = {"users": {}}
                     new_db["users"]["Juli"] = {
@@ -64,11 +63,9 @@ def load_full_db():
                         "custom_foods": data.get("custom_foods", {}),
                         "ingredient_db": data.get("ingredient_db", {})
                     }
-                    # Uložíme zmigrovanú databázu hneď na disk
                     with open(DB_FILE, "w", encoding="utf-8") as fw:
                         json.dump(new_db, fw, ensure_ascii=False, indent=4)
                     return new_db
-                
                 return data
         except:
             pass
@@ -144,7 +141,6 @@ if not st.session_state.logged_in:
                     "custom_foods": {},
                     "ingredient_db": {}
                 }
-                # Uložíme nového užívateľa do súboru
                 with open(DB_FILE, "w", encoding="utf-8") as fw:
                     json.dump(full_db, fw, ensure_ascii=False, indent=4)
                     
@@ -155,9 +151,8 @@ if not st.session_state.logged_in:
                 time.sleep(1)
                 st.rerun()
     
-    st.stop() # Zastaví vykresľovanie zvyšku aplikácie, kým nie je používateľ prihlásený
+    st.stop()
 
-# Tento kód zbehne len raz po prihlásení, aby načítal dáta konkrétneho usera do session state
 if "session_loaded" not in st.session_state or st.session_state.session_loaded != st.session_state.current_user:
     user_data = full_db["users"][st.session_state.current_user]
     st.session_state.gemini_key = user_data.get("api_key", "")
@@ -169,7 +164,6 @@ if "session_loaded" not in st.session_state or st.session_state.session_loaded !
     st.session_state.current_date_str = datetime.now().strftime("%Y-%m-%d")
     st.session_state.session_loaded = st.session_state.current_user
     
-    # Automatický prepočet chýbajúcich gramov u starých receptov (Zbehne len pri načítaní)
     migration_needed = False
     for food_name, food_data in st.session_state.custom_foods.items():
         if food_data.get("weight_g", 0) == 0:
@@ -229,7 +223,7 @@ def analyze_meal_to_recipe(meal_desc):
     prompt = f"""
     Zanalyzuj toto jedlo alebo zoznam surovín: "{meal_desc}". 
     Rozdeľ ho na jednotlivé suroviny.
-    ⚠️ KRITICKÉ PRAVIDLO: Ak používateľ zadá KONKRÉTNU ZNAČKU a produkt (napríklad "Vilgain proteínová tyčinka Double Chocolate"), NEHÁDAJ. Použi presné oficiálne nutričné hodnoty od výrobcu pre daný produkt, aké nájdeš na internete alebo v databázach.
+    ⚠️ KRITICKÉ PRAVIDLO: Ak používateľ zadá KONKRÉTNU ZNAČKU a produkt, NEHÁDAJ. Použi presné oficiálne nutričné hodnoty od výrobcu.
     Pre ostatné bežné suroviny odhadni kalórie (kcal) a makroživiny (protein, carbs, fats, fiber) v gramoch pre to konkrétne množstvo.
     Odhadni aj celkovú hmotnosť tohto jedla v gramoch (total_weight_g).
     
@@ -247,7 +241,7 @@ def analyze_meal_to_recipe(meal_desc):
             }}
         ]
     }}
-    Nevracaj nič iné ako tento JSON. Žiadny text okolo.
+    Nevracaj nič iné ako tento JSON.
     """
     model = get_gemini_model()
     if not model: return None
@@ -257,7 +251,7 @@ def analyze_meal_to_recipe(meal_desc):
         return json.loads(txt)
     except Exception as e:
         if "429" in str(e):
-            st.warning("⏳ Prekročený limit Googlu! Zasahuje Smart Auto-Pilot: Čakám 35 sekúnd a potichu to stiahnem za teba...")
+            st.warning("⏳ Prekročený limit Googlu! Zasahuje Smart Auto-Pilot: Čakám 35 sekúnd...")
             time.sleep(35)
             try:
                 response = model.generate_content(prompt)
@@ -278,11 +272,11 @@ def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals):
     Dnes som už mala tieto chody: {eaten_str}.
     
     Tvoja úloha:
-    1. Vydedukuj, aké logické chody (z klasických Raňajky, Obed, Večera, Snack) ma ešte dnes čakajú, na základe toho, čo som už mala.
-    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky a veľmi ZDRAVO rozdeľ len medzi TIETO ZOSTÁVAJÚCE chody. 
-    3. Navrhni 2-3 konkrétne tipy na jedlo (suroviny/recepty) presne pre tie chody, ktoré ma čakajú, aby som naplnila zvyšné makrá.
+    1. Vydedukuj, aké logické chody (z klasických Raňajky, Obed, Večera, Snack) ma ešte dnes čakajú.
+    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky rozdeľ len medzi TIETO ZOSTÁVAJÚCE chody. 
+    3. Navrhni 2-3 konkrétne tipy na jedlo presne pre tie chody, ktoré ma čakajú, aby som naplnila zvyšné makrá.
     
-    Buď veľmi stručný, povzbudivý, píš priateľsky po slovensky. Rovno mi daj tipy a max jednou vetou vysvetli, ako si mi to rozplánoval.
+    Buď veľmi stručný, povzbudivý, píš priateľsky po slovensky.
     """
     model = get_gemini_model()
     if not model: return "Chýba API kľúč."
@@ -306,7 +300,7 @@ with st.sidebar:
     
     st.header("🧠 AI Nastavenia")
     if not st.session_state.gemini_key:
-        st.warning("Pre plné fungovanie si doplň vlastný Gemini API Kľúč zadarmo na Google AI Studio.")
+        st.warning("⚠️ Pridaj si API kľúč pre odomknutie funkcií.")
         
     st.write("Tvoj kľúč sa bezpečne ukladá len do tvojho profilu.")
     new_key = st.text_input("Gemini API Key:", value=st.session_state.gemini_key, type="password")
@@ -325,6 +319,29 @@ with st.sidebar:
         st.session_state.user_pin = ""
         del st.session_state["session_loaded"]
         st.rerun()
+
+if not st.session_state.gemini_key:
+    st.info(f"🎉 **Vitaj v aplikácii, {st.session_state.current_user}! Tvoj osobný profil je pripravený.**")
+    st.markdown("""
+    **Táto appka nie je obyčajná kalkulačka kalórií. Je to tvoj osobný, múdry AI asistent.**
+    
+    ### 🌟 Čo všetko s ňou dokážeš:
+    *   ✨ **AI Zápisník:** Už žiadne nudné klikanie surovín! Napíš *"150g losos s ryžou"* a umelá inteligencia ti jedlo sama roztriedi, odváži a vypočíta makrá.
+    *   🤖 **Osobný Radca:** Nevieš, čo zjesť na večeru? Appka prečíta tvoj denník a poradí ti jedlo presne podľa toho, koľko bielkovín ti ešte dnes chýba.
+    *   ⚖️ **Smart Porcie:** Povie ti, koľko gramov z navareného jedla si máš naložiť na tanier, aby si do bodky splnila svoj limit.
+    *   🎯 **Vedecké Ciele:** Zastane prácu trénera. Sama prepočíta, koľko máš jesť, aby si dosiahla svoj cieľ (chudnutie, svaly) bez hladovania.
+
+    ### 🚀 Ako appku naštartovať (Zaberie to 1 minútu a je to 100% ZADARMO)
+    Aby AI funkcie ožili, aplikácia potrebuje prepojenie na mozog od Googlu. Každý používateľ si ho generuje sám pre seba:
+    
+    1. Klikni na tento odkaz: 👉 **[Google AI Studio](https://aistudio.google.com/app/apikey)** (prihlás sa svojím bežným Google účtom).
+    2. Klikni na modré tlačidlo **"Create API Key"** (Vytvoriť API kľúč).
+    3. Skopíruj ten dlhý kód, ktorý sa ti zobrazí.
+    4. **Vlož ho vľavo do bočného panelu pod 🧠 AI Nastavenia** a stlač Enter.
+    
+    *(Hneď ako kľúč vložíš, tento návod zmizne a môžeš začať naplno fungovať!)*
+    """)
+    st.divider()
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📅 Môj Deň", "✨ AI Zápisník", "➕ Nové jedlo", "⚙️ Správa jedál", "👤 Môj Profil"])
 
