@@ -1,5 +1,6 @@
 import streamlit as st
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
 import google.generativeai as genai
 import json
 import os
@@ -170,7 +171,9 @@ if "session_loaded" not in st.session_state or st.session_state.session_loaded !
     st.session_state.onboarding_done = user_data.get("onboarding_done", has_key)
     
     st.session_state.edit_recipe = {}
-    st.session_state.current_date_str = datetime.now().strftime("%Y-%m-%d")
+    
+    # Lokálny čas a dátum (Europe/Bratislava)
+    st.session_state.current_date_str = datetime.now(ZoneInfo("Europe/Bratislava")).strftime("%Y-%m-%d")
     st.session_state.session_loaded = st.session_state.current_user
     
     # AI Skener gramáží v starých receptoch
@@ -280,10 +283,11 @@ def add_macros(kcal, p, c, f, fib, name, meal_type, date_str):
     log["consumed"]["fats"] += f
     log["consumed"]["fiber"] += fib
     
+    # Použitie lokálneho časového pásma na ukladanie času konzumácie jedla
     log["history"].append({
         "id": str(time.time()), "name": name, "type": meal_type,
         "kcal": kcal, "p": p, "c": c, "f": f, "fib": fib,
-        "time": datetime.now().strftime("%H:%M")
+        "time": datetime.now(ZoneInfo("Europe/Bratislava")).strftime("%H:%M")
     })
     save_db()
 
