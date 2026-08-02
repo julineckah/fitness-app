@@ -10,6 +10,13 @@ st.set_page_config(page_title="My Fitness AI", page_icon="🍏", layout="centere
 
 DB_FILE = "databaza.json"
 
+def get_default_profile():
+    return {
+        "gender": "Žena", "age": 28, "weight": 71.0, "height": 175.0,
+        "activity": "Mierne aktívny (1-3x týždenne tréning)", 
+        "goal": "Rekompozícia (Chudnúť tuk, naberať svaly)"
+    }
+
 def calculate_targets(profile):
     if profile['gender'] == 'Žena':
         bmr = 10 * profile['weight'] + 6.25 * profile['height'] - 5 * profile['age'] - 161
@@ -40,80 +47,145 @@ def calculate_targets(profile):
         "carbs": int(carbs), "fats": int(fats), "fiber": int(fiber)
     }
 
-def load_db():
+def load_full_db():
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                today_str = datetime.now().strftime("%Y-%m-%d")
                 
-                if "daily_logs" not in data: data["daily_logs"] = {}
-                if today_str not in data["daily_logs"]:
-                    data["daily_logs"][today_str] = {"consumed": {"kcal": 0, "protein": 0.0, "carbs": 0.0, "fats": 0.0, "fiber": 0.0}, "history": []}
-                
-                if "profile" not in data:
-                    data["profile"] = {
-                        "gender": "Žena", "age": 28, "weight": 71.0, "height": 175.0,
-                        "activity": "Mierne aktívny (1-3x týždenne tréning)", "goal": "Rekompozícia (Chudnúť tuk, naberať svaly)"
+                # AUTOMATICKÁ MIGRÁCIA (Zo starej verzie na Multi-user verziu)
+                if "users" not in data:
+                    new_db = {"users": {}}
+                    new_db["users"]["Juli"] = {
+                        "pin": "1234",
+                        "api_key": data.get("api_key", ""),
+                        "profile": data.get("profile", get_default_profile()),
+                        "daily_logs": data.get("daily_logs", {}),
+                        "custom_foods": data.get("custom_foods", {}),
+                        "ingredient_db": data.get("ingredient_db", {})
                     }
+                    # Uložíme zmigrovanú databázu hneď na disk
+                    with open(DB_FILE, "w", encoding="utf-8") as fw:
+                        json.dump(new_db, fw, ensure_ascii=False, indent=4)
+                    return new_db
+                
                 return data
         except:
             pass
-            
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    return {
-        "api_key": "",
-        "profile": {
-            "gender": "Žena", "age": 28, "weight": 71.0, "height": 175.0,
-            "activity": "Mierne aktívny (1-3x týždenne tréning)", "goal": "Rekompozícia (Chudnúť tuk, naberať svaly)"
-        },
-        "daily_logs": {
-            today_str: {"consumed": {"kcal": 0, "protein": 0.0, "carbs": 0.0, "fats": 0.0, "fiber": 0.0}, "history": []}
-        },
-        "custom_foods": {},
-        "ingredient_db": {}
-    }
+    return {"users": {}}
 
 def save_db():
-    data_to_save = {
-        "api_key": st.session_state.gemini_key,
-        "profile": st.session_state.profile,
-        "daily_logs": st.session_state.daily_logs,
-        "custom_foods": st.session_state.custom_foods,
-        "ingredient_db": st.session_state.ingredient_db
-    }
+    if not st.session_state.get("logged_in"): return
+    user = st.session_state.current_user
+    full_db = load_full_db()
+    
+    if user not in full_db["users"]:
+        full_db["users"][user] = {}
+        
+    full_db["users"][user]["pin"] = st.session_state.user_pin
+    full_db["users"][user]["api_key"] = st.session_state.gemini_key
+    full_db["users"][user]["profile"] = st.session_state.profile
+    full_db["users"][user]["daily_logs"] = st.session_state.daily_logs
+    full_db["users"][user]["custom_foods"] = st.session_state.custom_foods
+    full_db["users"][user]["ingredient_db"] = st.session_state.ingredient_db
+    
     with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(data_to_save, f, ensure_ascii=False, indent=4)
+        json.dump(full_db, f, ensure_ascii=False, indent=4)
 
-db_data = load_db()
+full_db = load_full_db()
 
-if 'gemini_key' not in st.session_state: st.session_state.gemini_key = db_data.get("api_key", "")
-if 'profile' not in st.session_state: st.session_state.profile = db_data.get("profile", {})
-if 'daily_logs' not in st.session_state: st.session_state.daily_logs = db_data.get("daily_logs", {})
-if 'custom_foods' not in st.session_state: st.session_state.custom_foods = db_data.get("custom_foods", {})
-if 'ingredient_db' not in st.session_state: st.session_state.ingredient_db = db_data.get("ingredient_db", {})
-if 'edit_recipe' not in st.session_state: st.session_state.edit_recipe = {}
-if 'current_date_str' not in st.session_state: st.session_state.current_date_str = datetime.now().strftime("%Y-%m-%d")
+if 'logged_in' not in st.session_state: 
+    st.session_state.logged_in = False
+if 'current_user' not in st.session_state: 
+    st.session_state.current_user = ""
+if 'user_pin' not in st.session_state: 
+    st.session_state.user_pin = ""
 
-# Automatická migrácia: Odhad váhy pre staré recepty, ktoré váhu nemajú
-migration_needed = False
-for food_name, food_data in st.session_state.custom_foods.items():
-    if food_data.get("weight_g", 0) == 0:
-        est_weight = 0
-        for ing, amt in food_data.get("ingredients", {}).items():
-            # Hľadá čísla s 'g' alebo 'ml' v názve, napr. "Banán (120g)"
-            matches = re.findall(r'(\d+(?:[.,]\d+)?)\s*(g|ml)\b', ing.lower())
-            if matches:
-                try:
-                    val = float(matches[-1][0].replace(',', '.'))
-                    est_weight += val * amt
-                except: pass
-        if est_weight > 0:
-            food_data["weight_g"] = int(est_weight)
-            migration_needed = True
+if not st.session_state.logged_in:
+    st.title("🍏 Smart Nutričný Asistent")
+    st.write("Vitaj v aplikácii! Prosím, prihlás sa, alebo si vytvor nový profil.")
+    
+    tab_login, tab_reg = st.tabs(["Prihlásenie", "Nová registrácia"])
+    
+    with tab_login:
+        l_name = st.text_input("Tvoje meno:", key="l_name")
+        l_pin = st.text_input("PIN kód:", type="password", key="l_pin")
+        if st.button("Prihlásiť sa", type="primary"):
+            if l_name in full_db["users"]:
+                if full_db["users"][l_name]["pin"] == l_pin:
+                    st.session_state.logged_in = True
+                    st.session_state.current_user = l_name
+                    st.session_state.user_pin = l_pin
+                    st.success(f"Vitaj späť, {l_name}!")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error("Nesprávny PIN kód!")
+            else:
+                st.error("Používateľ s týmto menom neexistuje. Prejdi na registráciu.")
+                
+    with tab_reg:
+        r_name = st.text_input("Zvoľ si meno:", key="r_name")
+        r_pin = st.text_input("Zvoľ si 4-miestny PIN:", type="password", key="r_pin")
+        r_pin2 = st.text_input("Zopakuj PIN:", type="password", key="r_pin2")
+        if st.button("Vytvoriť profil", type="primary"):
+            if not r_name.strip() or not r_pin:
+                st.error("Vyplň všetky políčka.")
+            elif r_name in full_db["users"]:
+                st.error("Toto meno už je obsadené. Zvoľ si iné.")
+            elif r_pin != r_pin2:
+                st.error("PIN kódy sa nezhodujú!")
+            else:
+                full_db["users"][r_name] = {
+                    "pin": r_pin,
+                    "api_key": "",
+                    "profile": get_default_profile(),
+                    "daily_logs": {},
+                    "custom_foods": {},
+                    "ingredient_db": {}
+                }
+                # Uložíme nového užívateľa do súboru
+                with open(DB_FILE, "w", encoding="utf-8") as fw:
+                    json.dump(full_db, fw, ensure_ascii=False, indent=4)
+                    
+                st.session_state.logged_in = True
+                st.session_state.current_user = r_name
+                st.session_state.user_pin = r_pin
+                st.success("Profil úspešne vytvorený!")
+                time.sleep(1)
+                st.rerun()
+    
+    st.stop() # Zastaví vykresľovanie zvyšku aplikácie, kým nie je používateľ prihlásený
 
-if migration_needed:
-    save_db()
+# Tento kód zbehne len raz po prihlásení, aby načítal dáta konkrétneho usera do session state
+if "session_loaded" not in st.session_state or st.session_state.session_loaded != st.session_state.current_user:
+    user_data = full_db["users"][st.session_state.current_user]
+    st.session_state.gemini_key = user_data.get("api_key", "")
+    st.session_state.profile = user_data.get("profile", get_default_profile())
+    st.session_state.daily_logs = user_data.get("daily_logs", {})
+    st.session_state.custom_foods = user_data.get("custom_foods", {})
+    st.session_state.ingredient_db = user_data.get("ingredient_db", {})
+    st.session_state.edit_recipe = {}
+    st.session_state.current_date_str = datetime.now().strftime("%Y-%m-%d")
+    st.session_state.session_loaded = st.session_state.current_user
+    
+    # Automatický prepočet chýbajúcich gramov u starých receptov (Zbehne len pri načítaní)
+    migration_needed = False
+    for food_name, food_data in st.session_state.custom_foods.items():
+        if food_data.get("weight_g", 0) == 0:
+            est_weight = 0
+            for ing, amt in food_data.get("ingredients", {}).items():
+                matches = re.findall(r'(\d+(?:[.,]\d+)?)\s*(g|ml)\b', ing.lower())
+                if matches:
+                    try:
+                        val = float(matches[-1][0].replace(',', '.'))
+                        est_weight += val * amt
+                    except: pass
+            if est_weight > 0:
+                food_data["weight_g"] = int(est_weight)
+                migration_needed = True
+    if migration_needed:
+        save_db()
 
 GOALS = calculate_targets(st.session_state.profile)
 
@@ -163,7 +235,7 @@ def analyze_meal_to_recipe(meal_desc):
     
     Vráť PRÍSNY JSON vo formáte:
     {{
-        "total_weight_g": 350,  // Tvoj najlepší odhad celkovej hmotnosti tohto jedla v gramoch (súčet všetkých surovín)
+        "total_weight_g": 350,
         "ingredients": [
             {{
                 "name": "Názov suroviny (množstvo)",
@@ -206,11 +278,11 @@ def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals):
     Dnes som už mala tieto chody: {eaten_str}.
     
     Tvoja úloha:
-    1. Vydedukuj, aké logické chody (z klasických Raňajky, Obed, Večera, Snack) ma ešte dnes čakajú.
-    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky a veľmi ZDRAVO rozdeľ medzi TIETO ZOSTÁVAJÚCE chody. (Nenavrhuj mi, aby som všetky zvyšné kalórie zjedla v jednom obede, ak ma čaká ešte večera).
+    1. Vydedukuj, aké logické chody (z klasických Raňajky, Obed, Večera, Snack) ma ešte dnes čakajú, na základe toho, čo som už mala.
+    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky a veľmi ZDRAVO rozdeľ len medzi TIETO ZOSTÁVAJÚCE chody. 
     3. Navrhni 2-3 konkrétne tipy na jedlo (suroviny/recepty) presne pre tie chody, ktoré ma čakajú, aby som naplnila zvyšné makrá.
     
-    Buď veľmi stručný, povzbudivý, píš priateľsky po slovensky. Rovno mi daj tipy a max jednou vetou vysvetli, ako si mi to rozplánoval pre zvyšok dňa.
+    Buď veľmi stručný, povzbudivý, píš priateľsky po slovensky. Rovno mi daj tipy a max jednou vetou vysvetli, ako si mi to rozplánoval.
     """
     model = get_gemini_model()
     if not model: return "Chýba API kľúč."
@@ -229,9 +301,14 @@ def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals):
         return "Chyba spojenia s AI."
 
 with st.sidebar:
-    st.header("🧠 AI Nastavenia")
-    st.write("Tvoj kľúč sa bezpečne ukladá do databázy.")
+    st.markdown(f"### 👋 Ahoj, {st.session_state.current_user}!")
+    st.divider()
     
+    st.header("🧠 AI Nastavenia")
+    if not st.session_state.gemini_key:
+        st.warning("Pre plné fungovanie si doplň vlastný Gemini API Kľúč zadarmo na Google AI Studio.")
+        
+    st.write("Tvoj kľúč sa bezpečne ukladá len do tvojho profilu.")
     new_key = st.text_input("Gemini API Key:", value=st.session_state.gemini_key, type="password")
     
     if new_key != st.session_state.gemini_key:
@@ -239,6 +316,14 @@ with st.sidebar:
         save_db()
         st.success("Kľúč trvalo uložený! ✅")
         time.sleep(1)
+        st.rerun()
+        
+    st.divider()
+    if st.button("🚪 Odhlásiť sa", type="secondary", use_container_width=True):
+        st.session_state.logged_in = False
+        st.session_state.current_user = ""
+        st.session_state.user_pin = ""
+        del st.session_state["session_loaded"]
         st.rerun()
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📅 Môj Deň", "✨ AI Zápisník", "➕ Nové jedlo", "⚙️ Správa jedál", "👤 Môj Profil"])
@@ -391,7 +476,7 @@ with tab1:
 
 with tab2:
     st.subheader("✨ AI Zápisník")
-    st.write("Jedným klikom zjedz alebo navždy ulož celé jedlo. AI ho roztriedi na suroviny.")
+    st.write("Jedným klikom zjedz alebo navždy ulož celé jedlo. AI ho roztriedi na suroviny a zistí váhu.")
     ai_meal = st.text_area("Napríklad: '150g losos s ryžou a brokolicou' alebo '1 Vilgain tyčinka Double Trouble 55g'", height=100)
     
     if st.button("✨ Zanalyzovať jedlo"):
