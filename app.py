@@ -4,6 +4,7 @@ import google.generativeai as genai
 import json
 import os
 import time
+import re
 
 st.set_page_config(page_title="My Fitness AI", page_icon="🍏", layout="centered")
 
@@ -94,6 +95,26 @@ if 'ingredient_db' not in st.session_state: st.session_state.ingredient_db = db_
 if 'edit_recipe' not in st.session_state: st.session_state.edit_recipe = {}
 if 'current_date_str' not in st.session_state: st.session_state.current_date_str = datetime.now().strftime("%Y-%m-%d")
 
+# Automatická migrácia: Odhad váhy pre staré recepty, ktoré váhu nemajú
+migration_needed = False
+for food_name, food_data in st.session_state.custom_foods.items():
+    if food_data.get("weight_g", 0) == 0:
+        est_weight = 0
+        for ing, amt in food_data.get("ingredients", {}).items():
+            # Hľadá čísla s 'g' alebo 'ml' v názve, napr. "Banán (120g)"
+            matches = re.findall(r'(\d+(?:[.,]\d+)?)\s*(g|ml)\b', ing.lower())
+            if matches:
+                try:
+                    val = float(matches[-1][0].replace(',', '.'))
+                    est_weight += val * amt
+                except: pass
+        if est_weight > 0:
+            food_data["weight_g"] = int(est_weight)
+            migration_needed = True
+
+if migration_needed:
+    save_db()
+
 GOALS = calculate_targets(st.session_state.profile)
 
 def add_macros(kcal, p, c, f, fib, name, meal_type, date_str):
@@ -138,6 +159,7 @@ def analyze_meal_to_recipe(meal_desc):
     Rozdeľ ho na jednotlivé suroviny.
     ⚠️ KRITICKÉ PRAVIDLO: Ak používateľ zadá KONKRÉTNU ZNAČKU a produkt (napríklad "Vilgain proteínová tyčinka Double Chocolate"), NEHÁDAJ. Použi presné oficiálne nutričné hodnoty od výrobcu pre daný produkt, aké nájdeš na internete alebo v databázach.
     Pre ostatné bežné suroviny odhadni kalórie (kcal) a makroživiny (protein, carbs, fats, fiber) v gramoch pre to konkrétne množstvo.
+    Odhadni aj celkovú hmotnosť tohto jedla v gramoch (total_weight_g).
     
     Vráť PRÍSNY JSON vo formáte:
     {{
@@ -185,7 +207,7 @@ def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals):
     
     Tvoja úloha:
     1. Vydedukuj, aké logické chody (z klasických Raňajky, Obed, Večera, Snack) ma ešte dnes čakajú.
-    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky a veľmi ZDRAVO rozdeľ medzi TIESO ZOSTÁVAJÚCE chody. (Nenavrhuj mi, aby som všetky zvyšné kalórie zjedla v jednom obede, ak ma čaká ešte večera).
+    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky a veľmi ZDRAVO rozdeľ medzi TIETO ZOSTÁVAJÚCE chody. (Nenavrhuj mi, aby som všetky zvyšné kalórie zjedla v jednom obede, ak ma čaká ešte večera).
     3. Navrhni 2-3 konkrétne tipy na jedlo (suroviny/recepty) presne pre tie chody, ktoré ma čakajú, aby som naplnila zvyšné makrá.
     
     Buď veľmi stručný, povzbudivý, píš priateľsky po slovensky. Rovno mi daj tipy a max jednou vetou vysvetli, ako si mi to rozplánoval pre zvyšok dňa.
@@ -473,7 +495,28 @@ with tab4:
 
         st.write("### 🥣 Úprava receptu")
         new_recipe_name_input = st.text_input("Názov jedla:", value=edit_food)
-        new_weight_input = st.number_input("Celková hmotnosť uvareného jedla (v gramoch, 0 = neznáma):", value=int(st.session_state.custom_foods[edit_food].get("weight_g", 0)), step=10)
+        
+        colW1, colW2 = st.columns([3, 1])
+        with colW1:
+            new_weight_input = st.number_input("Celková hmotnosť uvareného jedla (v gramoch, 0 = neznáma):", value=int(st.session_state.custom_foods[edit_food].get("weight_g", 0)), step=10)
+        with colW2:
+            st.write("")
+            st.write("")
+            if st.button("✨ Spočítaj váhu", use_container_width=True):
+                est = 0
+                for ing, amt in st.session_state.edit_recipe.items():
+                    matches = re.findall(r'(\d+(?:[.,]\d+)?)\s*(g|ml)\b', ing.lower())
+                    if matches:
+                        try: est += float(matches[-1][0].replace(',', '.')) * amt
+                        except: pass
+                if est > 0:
+                    st.session_state.custom_foods[edit_food]["weight_g"] = int(est)
+                    save_db()
+                    st.success(f"Váha zistená: {int(est)}g")
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.warning("Nenašli sa gramy.")
         
         st.write("**Suroviny:**")
         updated_recipe = {}
