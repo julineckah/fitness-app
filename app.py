@@ -134,12 +134,14 @@ def get_gemini_model():
 
 def analyze_meal_to_recipe(meal_desc):
     prompt = f"""
-    Zanalyzuj toto jedlo alebo suroviny: "{meal_desc}". 
+    Zanalyzuj toto jedlo alebo zoznam surovín: "{meal_desc}". 
     Rozdeľ ho na jednotlivé suroviny.
     ⚠️ KRITICKÉ PRAVIDLO: Ak používateľ zadá KONKRÉTNU ZNAČKU a produkt (napríklad "Vilgain proteínová tyčinka Double Chocolate"), NEHÁDAJ. Použi presné oficiálne nutričné hodnoty od výrobcu pre daný produkt, aké nájdeš na internete alebo v databázach.
     Pre ostatné bežné suroviny odhadni kalórie (kcal) a makroživiny (protein, carbs, fats, fiber) v gramoch pre to konkrétne množstvo.
+    
     Vráť PRÍSNY JSON vo formáte:
     {{
+        "total_weight_g": 350,  // Tvoj najlepší odhad celkovej hmotnosti tohto jedla v gramoch (súčet všetkých surovín)
         "ingredients": [
             {{
                 "name": "Názov suroviny (množstvo)",
@@ -234,17 +236,18 @@ with tab1:
         
     current_log = st.session_state.daily_logs[date_str]
 
-    st.subheader("🍽️ Pridať jedlo do tohto dňa")
+    st.subheader("🍽️ Pridať do tohto dňa")
     colA, colB, colC = st.columns([2, 1, 1])
     with colA:
-        selected_food = st.selectbox("Vyhľadaj z databázy (Začni písať):", ["(Nevybraté)"] + list(st.session_state.custom_foods.keys()))
+        selected_food = st.selectbox("Vyhľadaj jedlo z databázy (Začni písať):", ["(Nevybraté)"] + list(st.session_state.custom_foods.keys()))
     with colB:
         meal_type = st.selectbox("Druh:", ["Raňajky", "Obed", "Večera", "Snack"])
-        portion = st.number_input("Násobok porcie (1.0 = celá)", min_value=0.1, value=1.0, step=0.1)
+        portion = st.number_input("Veľkosť porcie (1.0 = celá)", min_value=0.1, value=1.0, step=0.1)
     
     if selected_food != "(Nevybraté)":
         food_data = st.session_state.custom_foods[selected_food]
         base_macros = calc_macros(food_data["ingredients"])
+        weight_g = food_data.get("weight_g", 0)
         
         p_kcal = base_macros['kcal'] * portion
         p_p = base_macros['protein'] * portion
@@ -253,9 +256,13 @@ with tab1:
         p_fib = base_macros['fiber'] * portion
         
         st.info(f"**Zloženie:** {food_data['desc']}")
-        st.write(f"📊 **Hodnoty tvojej porcie ({portion}x):** {round(p_kcal,1)} kcal | B: {round(p_p,1)}g | S: {round(p_c,1)}g | T: {round(p_f,1)}g")
         
+        if weight_g > 0:
+            p_weight = weight_g * portion
+            st.write(f"⚖️ **Celý recept má:** {weight_g}g ➔ 🍽️ **Na tanier (váhu) si nalož:** **{int(p_weight)} g**")
+            
         rem_kcal = max(0, GOALS['kcal'] - current_log["consumed"]["kcal"])
+        st.write(f"📊 **Hodnoty tvojej porcie ({portion}x):** {round(p_kcal,1)} kcal | B: {round(p_p,1)}g | S: {round(p_c,1)}g | T: {round(p_f,1)}g")
         
         meal_proportions = {"Raňajky": 0.25, "Obed": 0.35, "Večera": 0.30, "Snack": 0.10}
         target_meal_kcal = GOALS['kcal'] * meal_proportions.get(meal_type, 0.25)
@@ -268,7 +275,7 @@ with tab1:
             ideal_portion = max(0.1, ideal_portion)
             
             if max_portion <= 0:
-                st.warning("⚠️ Limit naplnený! Zjedením tohto jedla pôjdeš do kalorického prebytku.")
+                st.warning("⚠️ Na dnes už máš limit naplnený, táto porcia ťa dostane do prebytku.")
             elif portion > max_portion:
                 st.warning(f"⚠️ Pozor: Táto porcia ťa hodí do prebytku! Na dnes ti zostali kalórie už len na max **{max_portion}x** násobok.")
             else:
@@ -276,7 +283,7 @@ with tab1:
                 if diff <= 0.2:
                     st.success(f"✅ Skvelá voľba! Veľkosť {portion}x je pre tvoj '{meal_type}' úplne ideálna.")
                 else:
-                    st.info(f"💡 Tip: Pre vyvážený '{meal_type}' by ti presne sadla **{ideal_portion}x** porcia (aby zostalo aj na ďalšie chody).")
+                    st.info(f"💡 Tip pre vyvážený deň: Ak si na '{meal_type}' dáš **{ideal_portion}x** porciu, zostane ti ideálny priestor aj pre ďalšie chody.")
 
         with colC:
             st.write("") 
@@ -284,7 +291,7 @@ with tab1:
             if st.button("➕ Zjesť", type="primary", use_container_width=True):
                 meal_name_to_save = selected_food if portion == 1.0 else f"{selected_food} ({portion}x)"
                 add_macros(p_kcal, p_p, p_c, p_f, p_fib, meal_name_to_save, meal_type, date_str)
-                st.success(f"Pridané do denníka!")
+                st.success(f"Pridané a trvalo uložené!")
                 time.sleep(1)
                 st.rerun()
 
@@ -382,6 +389,7 @@ with tab2:
         st.write("### 🥗 Výsledok:")
         total_kcal = total_p = total_c = total_f = total_fib = 0
         new_ingredients = {}
+        total_weight = res.get("total_weight_g", 0)
         
         for item in res["ingredients"]:
             st.write(f"- **{item['name']}**: {item['kcal']} kcal (B: {item['protein']}g | S: {item['carbs']}g | T: {item['fats']}g)")
@@ -393,7 +401,7 @@ with tab2:
             }
             new_ingredients[ing_name] = 1.0 
             
-        st.info(f"**Spolu:** {round(total_kcal,1)} kcal | B: {round(total_p,1)}g | S: {round(total_c,1)}g | T: {round(total_f,1)}g")
+        st.info(f"**Spolu:** {round(total_kcal,1)} kcal | B: {round(total_p,1)}g | S: {round(total_c,1)}g | T: {round(total_f,1)}g | ⚖️ Odhad. hmotnosť: {total_weight}g")
         st.divider()
         
         col1, col2 = st.columns(2)
@@ -413,7 +421,11 @@ with tab2:
             meal_type_ai_save = st.selectbox("Dnes zjesť ako:", ["Obed", "Raňajky", "Večera", "Snack"], key="ai_type_save")
             if st.button("💾 Uložiť trvalo + Zjesť"):
                 if new_recipe_name_ai:
-                    st.session_state.custom_foods[new_recipe_name_ai] = {"desc": st.session_state.ai_last_meal_name, "ingredients": new_ingredients}
+                    st.session_state.custom_foods[new_recipe_name_ai] = {
+                        "desc": st.session_state.ai_last_meal_name, 
+                        "ingredients": new_ingredients,
+                        "weight_g": total_weight
+                    }
                     save_db()
                     add_macros(total_kcal, total_p, total_c, total_f, total_fib, new_recipe_name_ai, meal_type_ai_save, st.session_state.current_date_str)
                     del st.session_state["ai_last_meal"]
@@ -423,7 +435,7 @@ with tab2:
 
 with tab3:
     st.subheader("➕ Vytvoriť recept (cez AI)")
-    st.write("Len opíš, čo si varila, AI sa postará o zvyšok.")
+    st.write("Len opíš, čo si varila, AI sa postará o zvyšok vrátane odhadu hmotnosti.")
     new_name = st.text_input("Názov jedla (napr. 'Moje lievance so sirupom'):")
     new_desc = st.text_area("Vymenuj všetky ingrediencie aj s množstvami (odmerky, lyžice, gramy...):")
     
@@ -440,7 +452,11 @@ with tab3:
                         }
                         new_ingredients[ing_name] = 1.0
                     
-                    st.session_state.custom_foods[new_name] = {"desc": new_desc, "ingredients": new_ingredients}
+                    st.session_state.custom_foods[new_name] = {
+                        "desc": new_desc, 
+                        "ingredients": new_ingredients,
+                        "weight_g": res.get("total_weight_g", 0)
+                    }
                     save_db()
                     st.success(f"Jedlo uložené! Nájdeš ho v záložke 'Správa jedál'.")
                     time.sleep(1.5)
@@ -456,10 +472,10 @@ with tab4:
             st.session_state.current_edit_food = edit_food
 
         st.write("### 🥣 Úprava receptu")
-        # Tu je to nové pole pre premenovanie receptu!
         new_recipe_name_input = st.text_input("Názov jedla:", value=edit_food)
-        st.write("**Suroviny:**")
+        new_weight_input = st.number_input("Celková hmotnosť uvareného jedla (v gramoch, 0 = neznáma):", value=int(st.session_state.custom_foods[edit_food].get("weight_g", 0)), step=10)
         
+        st.write("**Suroviny:**")
         updated_recipe = {}
         for ing, amount in list(st.session_state.edit_recipe.items()):
             col1, col2, col3 = st.columns([3, 2, 1])
@@ -500,7 +516,7 @@ with tab4:
                         st.rerun()
                             
         st.divider()
-        st.write("**✍️ Alebo pridať surovinu RUČNE z etikety (napr. na presné makrá z obalu):**")
+        st.write("**✍️ Alebo pridať surovinu RUČNE z etikety (napr. presné hodnoty z obalu):**")
         with st.expander("Rozbaliť formulár pre ručné zadanie"):
             man_name = st.text_input("Presný Názov (napr. 'Vilgain tyčinka 55g')")
             colK, colP, colC, colF, colFib = st.columns(5)
@@ -544,16 +560,18 @@ with tab4:
                     else:
                         st.session_state.custom_foods[final_name] = {
                             "desc": st.session_state.custom_foods[edit_food].get("desc", ""),
-                            "ingredients": st.session_state.edit_recipe.copy()
+                            "ingredients": st.session_state.edit_recipe.copy(),
+                            "weight_g": new_weight_input
                         }
                         del st.session_state.custom_foods[edit_food]
                         if "current_edit_food" in st.session_state: del st.session_state["current_edit_food"]
                         save_db()
-                        st.success("Názov aj zmeny v recepte boli uložené.")
+                        st.success("Názov, váha aj zmeny v recepte boli uložené.")
                         time.sleep(1)
                         st.rerun()
                 else:
                     st.session_state.custom_foods[edit_food]["ingredients"] = st.session_state.edit_recipe.copy()
+                    st.session_state.custom_foods[edit_food]["weight_g"] = new_weight_input
                     save_db()
                     st.success("Zmeny v recepte boli uložené.")
                     time.sleep(1)
