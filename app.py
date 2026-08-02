@@ -53,6 +53,7 @@ def load_full_db():
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 
+                # Migrácia zo starej single-user databázy na multi-user s profilom Juli
                 if "users" not in data:
                     new_db = {"users": {}}
                     new_db["users"]["Juli"] = {
@@ -61,7 +62,8 @@ def load_full_db():
                         "profile": data.get("profile", get_default_profile()),
                         "daily_logs": data.get("daily_logs", {}),
                         "custom_foods": data.get("custom_foods", {}),
-                        "ingredient_db": data.get("ingredient_db", {})
+                        "ingredient_db": data.get("ingredient_db", {}),
+                        "onboarding_done": True # Juli už onboaring robiť nemusí
                     }
                     with open(DB_FILE, "w", encoding="utf-8") as fw:
                         json.dump(new_db, fw, ensure_ascii=False, indent=4)
@@ -85,6 +87,7 @@ def save_db():
     full_db["users"][user]["daily_logs"] = st.session_state.daily_logs
     full_db["users"][user]["custom_foods"] = st.session_state.custom_foods
     full_db["users"][user]["ingredient_db"] = st.session_state.ingredient_db
+    full_db["users"][user]["onboarding_done"] = st.session_state.onboarding_done
     
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(full_db, f, ensure_ascii=False, indent=4)
@@ -139,7 +142,8 @@ if not st.session_state.logged_in:
                     "profile": get_default_profile(),
                     "daily_logs": {},
                     "custom_foods": {},
-                    "ingredient_db": {}
+                    "ingredient_db": {},
+                    "onboarding_done": False # Noví užívatelia musia prejsť privítaním
                 }
                 with open(DB_FILE, "w", encoding="utf-8") as fw:
                     json.dump(full_db, fw, ensure_ascii=False, indent=4)
@@ -160,10 +164,16 @@ if "session_loaded" not in st.session_state or st.session_state.session_loaded !
     st.session_state.daily_logs = user_data.get("daily_logs", {})
     st.session_state.custom_foods = user_data.get("custom_foods", {})
     st.session_state.ingredient_db = user_data.get("ingredient_db", {})
+    
+    # Skontrolujeme, či má používateľ API kľúč. Ak áno, budeme predpokladať, že už onboarding absolvoval.
+    has_key = bool(st.session_state.gemini_key.strip())
+    st.session_state.onboarding_done = user_data.get("onboarding_done", has_key)
+    
     st.session_state.edit_recipe = {}
     st.session_state.current_date_str = datetime.now().strftime("%Y-%m-%d")
     st.session_state.session_loaded = st.session_state.current_user
     
+    # AI Skener gramáží v starých receptoch
     migration_needed = False
     for food_name, food_data in st.session_state.custom_foods.items():
         if food_data.get("weight_g", 0) == 0:
@@ -182,6 +192,82 @@ if "session_loaded" not in st.session_state or st.session_state.session_loaded !
         save_db()
 
 GOALS = calculate_targets(st.session_state.profile)
+
+if not st.session_state.onboarding_done:
+    if "onboard_step" not in st.session_state:
+        st.session_state.onboard_step = 1
+        
+    st.title("🎉 Vitaj v Smart Nutričnom Asistentovi!")
+    st.progress(st.session_state.onboard_step / 2.0)
+    
+    if st.session_state.onboard_step == 1:
+        st.markdown("### Krok 1/2: Aktivácia AI mozgu 🧠")
+        st.markdown("""
+        **Táto appka nie je obyčajná kalkulačka kalórií. Je to tvoj osobný, múdry AI asistent.**
+        
+        ### 🌟 Čo všetko s ňou dokážeš:
+        *   ✨ **AI Zápisník:** Už žiadne nudné klikanie surovín! Napíš *"150g losos s ryžou"* a AI jedlo sama roztriedi, odváži a vypočíta makrá.
+        *   🤖 **Osobný Radca:** Povie ti, čo presne by si si mala dať na večeru podľa toho, koľko bielkovín ti ešte dnes chýba.
+        *   ⚖️ **Smart Porcie:** Sama prepočíta, akú presnú porciu si naložiť na tanier bez prepočítavania.
+        """)
+        
+        st.info("Aby toto všetko fungovalo, aplikácia potrebuje prepojenie na umelú inteligenciu od Googlu. Vytvorenie kľúča je zadarmo a zaberie len 1 minútu.")
+        st.markdown("""
+        1. Klikni na tento odkaz: 👉 **[Google AI Studio](https://aistudio.google.com/app/apikey)** (prihlás sa bežným Google účtom).
+        2. Klikni na modré tlačidlo **"Create API Key"** (Vytvoriť API kľúč).
+        3. Skopíruj dlhý kód a vlož ho do políčka nižšie.
+        """)
+        
+        onb_key = st.text_input("Sem vlož svoj vygenerovaný API kľúč:", type="password")
+        
+        if st.button("Pokračovať na profil ➡️", type="primary"):
+            if not onb_key.strip():
+                st.error("Pre fungovanie aplikácie je nutné zadať API kľúč. Postupuj podľa návodu vyššie.")
+            else:
+                st.session_state.gemini_key = onb_key.strip()
+                save_db()
+                st.session_state.onboard_step = 2
+                st.rerun()
+                
+    elif st.session_state.onboard_step == 2:
+        st.markdown("### Krok 2/2: Tvoj osobný cieľ 🎯")
+        st.write("Aby sme ti vedeli vypočítať ideálne porcie a presné makrá na mieru, potrebujeme o tebe pár údajov.")
+        
+        p = st.session_state.profile
+        col1, col2 = st.columns(2)
+        with col1:
+            o_gender = st.selectbox("Pohlavie:", ["Žena", "Muž"], index=0 if p["gender"]=="Žena" else 1)
+            o_age = st.number_input("Vek:", min_value=10, max_value=100, value=int(p["age"]))
+            o_weight = st.number_input("Váha (kg):", min_value=30.0, max_value=200.0, value=float(p["weight"]), step=0.5)
+        with col2:
+            o_height = st.number_input("Výška (cm):", min_value=100.0, max_value=250.0, value=float(p["height"]), step=1.0)
+            o_activity = st.selectbox("Aktivita:", [
+                "Sedavý (kancelária, bez tréningu)", 
+                "Mierne aktívny (1-3x týždenne tréning)", 
+                "Veľmi aktívny (4-5x týždenne tréning)",
+                "Extrémne aktívny (každý deň)"
+            ], index=["Sedavý (kancelária, bez tréningu)", "Mierne aktívny (1-3x týždenne tréning)", "Veľmi aktívny (4-5x týždenne tréning)", "Extrémne aktívny (každý deň)"].index(p["activity"]))
+            
+        o_goal = st.selectbox("Hlavný cieľ:", [
+            "Chudnutie (Tuk)", 
+            "Rekompozícia (Chudnúť tuk, naberať svaly)", 
+            "Naberanie (Svaly)", 
+            "Udržiavanie váhy"
+        ], index=["Chudnutie (Tuk)", "Rekompozícia (Chudnúť tuk, naberať svaly)", "Naberanie (Svaly)", "Udržiavanie váhy"].index(p["goal"]))
+        
+        if st.button("Dokončiť nastavenie a vstúpiť do aplikácie 🚀", type="primary", use_container_width=True):
+            st.session_state.profile = {
+                "gender": o_gender, "age": o_age, "weight": o_weight, 
+                "height": o_height, "activity": o_activity, "goal": o_goal
+            }
+            st.session_state.onboarding_done = True
+            save_db()
+            st.balloons()
+            time.sleep(2)
+            st.rerun()
+
+    # Zastavíme vykresľovanie zvyšku aplikácie, kým používateľ nedokončí onboarding
+    st.stop()
 
 def add_macros(kcal, p, c, f, fib, name, meal_type, date_str):
     if date_str not in st.session_state.daily_logs:
@@ -223,7 +309,7 @@ def analyze_meal_to_recipe(meal_desc):
     prompt = f"""
     Zanalyzuj toto jedlo alebo zoznam surovín: "{meal_desc}". 
     Rozdeľ ho na jednotlivé suroviny.
-    ⚠️ KRITICKÉ PRAVIDLO: Ak používateľ zadá KONKRÉTNU ZNAČKU a produkt, NEHÁDAJ. Použi presné oficiálne nutričné hodnoty od výrobcu.
+    ⚠️ KRITICKÉ PRAVIDLO: Ak používateľ zadá KONKRÉTNU ZNAČKU a produkt (napr. "Vilgain tyčinka"), NEHÁDAJ. Použi presné oficiálne nutričné hodnoty od výrobcu pre daný produkt.
     Pre ostatné bežné suroviny odhadni kalórie (kcal) a makroživiny (protein, carbs, fats, fiber) v gramoch pre to konkrétne množstvo.
     Odhadni aj celkovú hmotnosť tohto jedla v gramoch (total_weight_g).
     
@@ -272,9 +358,9 @@ def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals):
     Dnes som už mala tieto chody: {eaten_str}.
     
     Tvoja úloha:
-    1. Vydedukuj, aké logické chody (z klasických Raňajky, Obed, Večera, Snack) ma ešte dnes čakajú.
-    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky rozdeľ len medzi TIETO ZOSTÁVAJÚCE chody. 
-    3. Navrhni 2-3 konkrétne tipy na jedlo presne pre tie chody, ktoré ma čakajú, aby som naplnila zvyšné makrá.
+    1. Vydedukuj, aké logické chody (z klasických Raňajky, Obed, Večera, Snack) ma ešte dnes logicky čakajú. (Ak som mala Raňajky, čaká ma Obed, Snack, Večera. Ak som mala aj Obed, čaká ma Snack a Večera atď.)
+    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky rozdeľ len medzi TIETO ZOSTÁVAJÚCE chody, aby to dávalo zmysel.
+    3. Navrhni 2-3 konkrétne tipy na jedlo presne pre ten chod, ktorý ma čaká ako najbližší, aby som naplnila zvyšné makrá (hlavne bielkoviny). Navrhni aj vhodné veľkosti/gramáže, aby sa to zmestilo do plánu.
     
     Buď veľmi stručný, povzbudivý, píš priateľsky po slovensky.
     """
@@ -319,29 +405,6 @@ with st.sidebar:
         st.session_state.user_pin = ""
         del st.session_state["session_loaded"]
         st.rerun()
-
-if not st.session_state.gemini_key:
-    st.info(f"🎉 **Vitaj v aplikácii, {st.session_state.current_user}! Tvoj osobný profil je pripravený.**")
-    st.markdown("""
-    **Táto appka nie je obyčajná kalkulačka kalórií. Je to tvoj osobný, múdry AI asistent.**
-    
-    ### 🌟 Čo všetko s ňou dokážeš:
-    *   ✨ **AI Zápisník:** Už žiadne nudné klikanie surovín! Napíš *"150g losos s ryžou"* a umelá inteligencia ti jedlo sama roztriedi, odváži a vypočíta makrá.
-    *   🤖 **Osobný Radca:** Nevieš, čo zjesť na večeru? Appka prečíta tvoj denník a poradí ti jedlo presne podľa toho, koľko bielkovín ti ešte dnes chýba.
-    *   ⚖️ **Smart Porcie:** Povie ti, koľko gramov z navareného jedla si máš naložiť na tanier, aby si do bodky splnila svoj limit.
-    *   🎯 **Vedecké Ciele:** Zastane prácu trénera. Sama prepočíta, koľko máš jesť, aby si dosiahla svoj cieľ (chudnutie, svaly) bez hladovania.
-
-    ### 🚀 Ako appku naštartovať (Zaberie to 1 minútu a je to 100% ZADARMO)
-    Aby AI funkcie ožili, aplikácia potrebuje prepojenie na mozog od Googlu. Každý používateľ si ho generuje sám pre seba:
-    
-    1. Klikni na tento odkaz: 👉 **[Google AI Studio](https://aistudio.google.com/app/apikey)** (prihlás sa svojím bežným Google účtom).
-    2. Klikni na modré tlačidlo **"Create API Key"** (Vytvoriť API kľúč).
-    3. Skopíruj ten dlhý kód, ktorý sa ti zobrazí.
-    4. **Vlož ho vľavo do bočného panelu pod 🧠 AI Nastavenia** a stlač Enter.
-    
-    *(Hneď ako kľúč vložíš, tento návod zmizne a môžeš začať naplno fungovať!)*
-    """)
-    st.divider()
 
 tab1, tab2, tab3, tab4, tab5 = st.tabs(["📅 Môj Deň", "✨ AI Zápisník", "➕ Nové jedlo", "⚙️ Správa jedál", "👤 Môj Profil"])
 
@@ -661,7 +724,7 @@ with tab4:
                         st.rerun()
                             
         st.divider()
-        st.write("**✍️ Alebo pridať surovinu RUČNE z etikety (napr. presné hodnoty z obalu):**")
+        st.write("**✍️ Alebo pridať surovinu RUČNE z etikety:**")
         with st.expander("Rozbaliť formulár pre ručné zadanie"):
             man_name = st.text_input("Presný Názov (napr. 'Vilgain tyčinka 55g')")
             colK, colP, colC, colF, colFib = st.columns(5)
