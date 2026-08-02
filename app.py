@@ -210,8 +210,8 @@ if not st.session_state.onboarding_done:
         
         ### 🌟 Čo všetko s ňou dokážeš:
         *   ✨ **AI Zápisník:** Už žiadne nudné klikanie surovín! Napíš *"150g losos s ryžou"* a AI jedlo sama roztriedi, odváži a vypočíta makrá.
-        *   🤖 **Osobný Radca:** Povie ti, čo presne by si si mala dať na večeru podľa toho, koľko bielkovín ti ešte dnes chýba.
-        *   ⚖️ **Smart Porcie:** Sama prepočíta, akú presnú porciu si naložiť na tanier bez prepočítavania.
+        *   🤖 **Osobný Radca:** Povie ti, čo presne by si si mala dať na večeru podľa toho, koľko bielkovín ti ešte dnes chýba a čo ťa čaká.
+        *   ⚖️ **Smart Porcie:** Sama prepočíta, akú presnú porciu si naložiť na tanier bez zložitého prepočítavania.
         """)
         
         st.info("Aby toto všetko fungovalo, aplikácia potrebuje prepojenie na umelú inteligenciu od Googlu. Vytvorenie kľúča je zadarmo a zaberie len 1 minútu.")
@@ -690,8 +690,16 @@ with tab4:
         st.write("**Suroviny:**")
         updated_recipe = {}
         for ing, amount in list(st.session_state.edit_recipe.items()):
-            col1, col2, col3 = st.columns([3, 2, 1])
-            with col1: st.write(f"**{ing}**")
+            # Vyťažíme aktuálnu hodnotu widgetu pre živý prepočet
+            current_amt = st.session_state.get(f"amt_{ing}", amount)
+            
+            col1, col2, col3 = st.columns([4, 2, 1])
+            with col1: 
+                st.markdown(f"**{ing}**")
+                # Výpis konkrétnych makroživín pre túto surovinu priamo pod názvom
+                if ing in st.session_state.ingredient_db:
+                    d = st.session_state.ingredient_db[ing]
+                    st.caption(f"*(🔥 {round(d['kcal'] * current_amt, 1)} kcal | B: {round(d['protein'] * current_amt, 1)}g | S: {round(d['carbs'] * current_amt, 1)}g | T: {round(d['fats'] * current_amt, 1)}g)*")
             with col2: 
                 new_amount = st.number_input("Násobok porcie", min_value=0.0, value=float(amount), step=0.1, key=f"amt_{ing}")
                 updated_recipe[ing] = new_amount
