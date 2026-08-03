@@ -55,6 +55,7 @@ def load_full_db():
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 
+                # Migrácia starej databázy na novú pre viacerých používateľov
                 if "users" not in data:
                     new_db = {"users": {}}
                     new_db["users"]["Juli"] = {
@@ -95,7 +96,6 @@ def save_db():
 
 full_db = load_full_db()
 
-# Inicializácia základných premenných
 if 'logged_in' not in st.session_state: 
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state: 
@@ -200,7 +200,7 @@ if "session_loaded" not in st.session_state or st.session_state.session_loaded !
     st.session_state.current_date_str = datetime.now(ZoneInfo("Europe/Bratislava")).strftime("%Y-%m-%d")
     st.session_state.session_loaded = st.session_state.current_user
     
-    # Skener starých gramáží
+    # Skener starých gramáží - presunie sa aj do novej DB struktúry
     migration_needed = False
     for food_name, food_data in st.session_state.custom_foods.items():
         if food_data.get("weight_g", 0) == 0:
@@ -283,11 +283,13 @@ if not st.session_state.onboarding_done:
             "Udržiavanie váhy"
         ], index=["Chudnutie (Tuk)", "Rekompozícia (Chudnúť tuk, naberať svaly)", "Naberanie (Svaly)", "Udržiavanie váhy"].index(p["goal"]))
         
+        o_exclusions = st.text_input("Čo neješ? (Alergie, intolerancie, neobľúbené jedlá, napr. 'ryby, huby'):", value=p.get("exclusions", ""))
+        
         if st.button("Dokončiť nastavenie a vstúpiť do aplikácie 🚀", type="primary", use_container_width=True):
             st.session_state.profile = {
                 "gender": o_gender, "age": o_age, "weight": o_weight, 
                 "height": o_height, "activity": o_activity, "goal": o_goal,
-                "exclusions": ""
+                "exclusions": o_exclusions
             }
             st.session_state.onboarding_done = True
             save_db()
@@ -477,7 +479,7 @@ with tab1:
         selected_food = st.selectbox("Vyhľadaj jedlo z databázy (Začni písať):", ["(Nevybraté)"] + list(st.session_state.custom_foods.keys()))
     with colB:
         meal_type = st.selectbox("Druh:", ["Raňajky", "Obed", "Večera", "Snack"])
-        portion = st.number_input("Násobok porcie (1.0 = celá)", min_value=0.1, value=1.0, step=0.1)
+        portion = st.number_input("Veľkosť porcie (1.0 = celá)", min_value=0.1, value=1.0, step=0.1)
     
     if selected_food != "(Nevybraté)":
         food_data = st.session_state.custom_foods[selected_food]
@@ -520,7 +522,6 @@ with tab1:
                 else:
                     st.info(f"💡 Tip: Ak si pre chod '{meal_type}' naložíš ideálne **{ideal_portion}x** porciu, zostane ti presne miesto na zvyšok dňa.")
 
-        # Vplyv na zdravie priamo pri výbere jedla
         with st.expander("🔬 Zistiť vplyv na zdravie a mikrobióm (NOVA)"):
             if st.button("✨ Zanalyzovať zdravie tohto jedla", key=f"btn_h_{selected_food}"):
                 with st.spinner("AI skúma štruktúru potraviny..."):
@@ -659,26 +660,23 @@ with tab2:
             total_kcal += item['kcal']; total_p += item['protein']; total_c += item['carbs']; total_f += item['fats']; total_fib += item['fiber']
             
             ing_name = item["name"]
-        new_goal = st.selectbox("Hlavný cieľ (Rekompozícia = Svaly + Chudnutie):", [
-            "Chudnutie (Tuk)", 
-            "Rekompozícia (Chudnúť tuk, naberať svaly)", 
-            "Naberanie (Svaly)", 
-            "Udržiavanie váhy"
-        ], index=["Chudnutie (Tuk)", "Rekompozícia (Chudnúť tuk, naberať svaly)", "Naberanie (Svaly)", "Udržiavanie váhy"].index(p["goal"]))
-
-        new_exclusions = st.text_input("Čo neješ? (Alergie, intolerancie, neobľúbené jedlá, napr. 'ryby, huby'):", value=p.get("exclusions", ""))
-
-        if st.button("💾 Uložiť profil a prepočítať ciele", type="primary"):
-            st.session_state.profile = {
-                "gender": new_gender, "age": new_age, "weight": new_weight, 
-                "height": new_height, "activity": new_activity, "goal": new_goal,
-                "exclusions": new_exclusions
+            new_ingredients[ing_name] = 1.0
+            st.session_state.ingredient_db[ing_name] = {
+                "kcal": item["kcal"], "protein": item["protein"], "carbs": item["carbs"], "fats": item["fats"], "fiber": item["fiber"]
             }
-            save_db()
-            st.success("Profil uložený! Ciele boli prepočítané na najnovšiu váhu.")
-            time.sleep(1)
+        
+        st.info(f"**Spolu:** {round(total_kcal)} kcal (B: {round(total_p)}g, S: {round(total_c)}g, T: {round(total_f)}g, Váha cca {total_weight}g)")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**A: Zjesť DNES na:**")
+            meal_type_ai = st.selectbox("Druh jedla:", ["Obed", "Raňajky", "Večera", "Snack"], key="ai_type")
+            if st.button("➕ Len zjesť"):
+                add_macros(total_kcal, total_p, total_c, total_f, total_fib, st.session_state.ai_last_meal_name, meal_type_ai, st.session_state.current_date_str)
+                del st.session_state["ai_last_meal"]
+                st.success("Pridané do dnešného dňa!")
+                time.sleep(1)
                 st.rerun()
-                
         with col2:
             st.write("**B: Zjesť + Uložiť do receptov**")
             new_recipe_name_ai = st.text_input("Ako sa toto jedlo bude volať?")
@@ -737,7 +735,6 @@ with tab4:
 
         st.write("### 🥣 Úprava receptu a Zdravotná analýza")
         
-        # Zdravotný a mikrobiómový skener pre tento recept
         with st.expander("🔬 AI Skóre zdravia a mikrobiómu (NOVA) pre tento recept"):
             if st.button("✨ Zanalyzovať zdravotný profil tohto receptu", key="btn_health_recipe"):
                 with st.spinner("AI študuje najnovšie vedecké výskumy..."):
@@ -911,10 +908,13 @@ with tab5:
         "Udržiavanie váhy"
     ], index=["Chudnutie (Tuk)", "Rekompozícia (Chudnúť tuk, naberať svaly)", "Naberanie (Svaly)", "Udržiavanie váhy"].index(p["goal"]))
 
+    new_exclusions = st.text_input("Čo neješ? (Alergie, intolerancie, neobľúbené jedlá, napr. 'ryby, huby'):", value=p.get("exclusions", ""))
+
     if st.button("💾 Uložiť profil a prepočítať ciele", type="primary"):
         st.session_state.profile = {
             "gender": new_gender, "age": new_age, "weight": new_weight, 
-            "height": new_height, "activity": new_activity, "goal": new_goal
+            "height": new_height, "activity": new_activity, "goal": new_goal,
+            "exclusions": new_exclusions
         }
         save_db()
         st.success("Profil uložený! Ciele boli prepočítané na najnovšiu váhu.")
