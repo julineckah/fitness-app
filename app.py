@@ -546,18 +546,38 @@ with tab1:
         c_p = current_log["consumed"]["protein"]
         st.metric("Bielkoviny", f"{int(c_p)} / {GOALS['protein']}g")
         st.progress(min(c_p / GOALS['protein'] if GOALS['protein'] else 0, 1.0))
+        with st.popover("🔍 Zdroje"):
+            if not current_log["history"]: st.caption("Zatiaľ žiadne jedlo.")
+            else:
+                for m in sorted(current_log["history"], key=lambda x: x["p"], reverse=True):
+                    if m["p"] > 0: st.markdown(f"**{round(m['p'], 1)}g** - {m['name']}")
     with col2:
         c_c = current_log["consumed"]["carbs"]
         st.metric("Sacharidy", f"{int(c_c)} / {GOALS['carbs']}g")
         st.progress(min(c_c / GOALS['carbs'] if GOALS['carbs'] else 0, 1.0))
+        with st.popover("🔍 Zdroje"):
+            if not current_log["history"]: st.caption("Zatiaľ žiadne jedlo.")
+            else:
+                for m in sorted(current_log["history"], key=lambda x: x["c"], reverse=True):
+                    if m["c"] > 0: st.markdown(f"**{round(m['c'], 1)}g** - {m['name']}")
     with col3:
         c_f = current_log["consumed"]["fats"]
         st.metric("Tuky", f"{int(c_f)} / {GOALS['fats']}g")
         st.progress(min(c_f / GOALS['fats'] if GOALS['fats'] else 0, 1.0))
+        with st.popover("🔍 Zdroje"):
+            if not current_log["history"]: st.caption("Zatiaľ žiadne jedlo.")
+            else:
+                for m in sorted(current_log["history"], key=lambda x: x["f"], reverse=True):
+                    if m["f"] > 0: st.markdown(f"**{round(m['f'], 1)}g** - {m['name']}")
     with col4:
         c_fib = current_log["consumed"]["fiber"]
         st.metric("Vláknina", f"{int(c_fib)} / {GOALS['fiber']}g")
         st.progress(min(c_fib / GOALS['fiber'] if GOALS['fiber'] else 0, 1.0))
+        with st.popover("🔍 Zdroje"):
+            if not current_log["history"]: st.caption("Zatiaľ žiadne jedlo.")
+            else:
+                for m in sorted(current_log["history"], key=lambda x: x["fib"], reverse=True):
+                    if m["fib"] > 0: st.markdown(f"**{round(m['fib'], 1)}g** - {m['name']}")
 
     st.write("")
     
