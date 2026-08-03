@@ -55,6 +55,7 @@ def load_full_db():
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 
+                # Migrácia starej databázy na multi-user
                 if "users" not in data:
                     new_db = {"users": {}}
                     new_db["users"]["Juli"] = {
@@ -193,10 +194,11 @@ if "session_loaded" not in st.session_state or st.session_state.session_loaded !
     st.session_state.onboarding_done = user_data.get("onboarding_done", has_key)
     st.session_state.edit_recipe = {}
     
-    # Nastavenie nášho časového pásma
+    # Nastavenie nášho časového pásma pre zápisy
     st.session_state.current_date_str = datetime.now(ZoneInfo("Europe/Bratislava")).strftime("%Y-%m-%d")
     st.session_state.session_loaded = st.session_state.current_user
     
+    # Migrácia váh starých receptov z textu
     migration_needed = False
     for food_name, food_data in st.session_state.custom_foods.items():
         if food_data.get("weight_g", 0) == 0:
@@ -473,7 +475,11 @@ with tab1:
     with col_meal:
         meal_type = st.selectbox("Druh jedla:", ["Raňajky", "Obed", "Večera", "Snack"])
         
-    selected_foods = st.multiselect("Vyhľadaj jedlá z databázy (Môžeš vybrať viacero naraz):", list(st.session_state.custom_foods.keys()))
+    # Ak kľúč pre multiselect ešte neexistuje v pamäti, vytvoríme ho
+    if "food_multiselect" not in st.session_state:
+        st.session_state.food_multiselect = []
+
+    selected_foods = st.multiselect("Vyhľadaj jedlá z databázy (Môžeš vybrať viacero naraz):", list(st.session_state.custom_foods.keys()), key="food_multiselect")
     
     if selected_foods:
         st.write("---")
@@ -557,7 +563,9 @@ with tab1:
                 
                 meal_name_to_save = food if port == 1.0 else f"{food} ({port}x)"
                 add_macros(p_kcal, p_p, p_c, p_f, p_fib, meal_name_to_save, meal_type, date_str)
-                
+            
+            # Po zjedení vyčistíme multiselect
+            st.session_state.food_multiselect = []
             st.success("Pridané a trvalo uložené!")
             time.sleep(1)
             st.rerun()
