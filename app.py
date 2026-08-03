@@ -54,7 +54,6 @@ def load_full_db():
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 
-                # Migrácia zo starej single-user databázy na multi-user s profilom Juli
                 if "users" not in data:
                     new_db = {"users": {}}
                     new_db["users"]["Juli"] = {
@@ -64,7 +63,7 @@ def load_full_db():
                         "daily_logs": data.get("daily_logs", {}),
                         "custom_foods": data.get("custom_foods", {}),
                         "ingredient_db": data.get("ingredient_db", {}),
-                        "onboarding_done": True # Juli už onboaring robiť nemusí
+                        "onboarding_done": True 
                     }
                     with open(DB_FILE, "w", encoding="utf-8") as fw:
                         json.dump(new_db, fw, ensure_ascii=False, indent=4)
@@ -95,12 +94,23 @@ def save_db():
 
 full_db = load_full_db()
 
+# Inicializácia základných premenných
 if 'logged_in' not in st.session_state: 
     st.session_state.logged_in = False
 if 'current_user' not in st.session_state: 
     st.session_state.current_user = ""
 if 'user_pin' not in st.session_state: 
     st.session_state.user_pin = ""
+
+if not st.session_state.logged_in:
+    q_params = st.query_params
+    if "u" in q_params and "p" in q_params:
+        u = q_params["u"]
+        p = q_params["p"]
+        if u in full_db["users"] and full_db["users"][u]["pin"] == p:
+            st.session_state.logged_in = True
+            st.session_state.current_user = u
+            st.session_state.user_pin = p
 
 if not st.session_state.logged_in:
     st.title("🍏 Smart Nutričný Asistent")
@@ -111,12 +121,21 @@ if not st.session_state.logged_in:
     with tab_login:
         l_name = st.text_input("Tvoje meno:", key="l_name")
         l_pin = st.text_input("PIN kód:", type="password", key="l_pin")
+        l_remember = st.checkbox("Zapamätať si ma (Trvalé prihlásenie na tomto zariadení)", value=True)
+        
         if st.button("Prihlásiť sa", type="primary"):
             if l_name in full_db["users"]:
                 if full_db["users"][l_name]["pin"] == l_pin:
                     st.session_state.logged_in = True
                     st.session_state.current_user = l_name
                     st.session_state.user_pin = l_pin
+                    
+                    if l_remember:
+                        st.query_params["u"] = l_name
+                        st.query_params["p"] = l_pin
+                    else:
+                        st.query_params.clear()
+                        
                     st.success(f"Vitaj späť, {l_name}!")
                     time.sleep(1)
                     st.rerun()
@@ -129,6 +148,8 @@ if not st.session_state.logged_in:
         r_name = st.text_input("Zvoľ si meno:", key="r_name")
         r_pin = st.text_input("Zvoľ si 4-miestny PIN:", type="password", key="r_pin")
         r_pin2 = st.text_input("Zopakuj PIN:", type="password", key="r_pin2")
+        r_remember = st.checkbox("Zapamätať si ma", value=True, key="r_rem")
+        
         if st.button("Vytvoriť profil", type="primary"):
             if not r_name.strip() or not r_pin:
                 st.error("Vyplň všetky políčka.")
@@ -144,7 +165,7 @@ if not st.session_state.logged_in:
                     "daily_logs": {},
                     "custom_foods": {},
                     "ingredient_db": {},
-                    "onboarding_done": False # Noví užívatelia musia prejsť privítaním
+                    "onboarding_done": False 
                 }
                 with open(DB_FILE, "w", encoding="utf-8") as fw:
                     json.dump(full_db, fw, ensure_ascii=False, indent=4)
@@ -152,6 +173,11 @@ if not st.session_state.logged_in:
                 st.session_state.logged_in = True
                 st.session_state.current_user = r_name
                 st.session_state.user_pin = r_pin
+                
+                if r_remember:
+                    st.query_params["u"] = r_name
+                    st.query_params["p"] = r_pin
+                    
                 st.success("Profil úspešne vytvorený!")
                 time.sleep(1)
                 st.rerun()
@@ -166,17 +192,14 @@ if "session_loaded" not in st.session_state or st.session_state.session_loaded !
     st.session_state.custom_foods = user_data.get("custom_foods", {})
     st.session_state.ingredient_db = user_data.get("ingredient_db", {})
     
-    # Skontrolujeme, či má používateľ API kľúč. Ak áno, budeme predpokladať, že už onboarding absolvoval.
     has_key = bool(st.session_state.gemini_key.strip())
     st.session_state.onboarding_done = user_data.get("onboarding_done", has_key)
-    
     st.session_state.edit_recipe = {}
     
-    # Lokálny čas a dátum (Europe/Bratislava)
     st.session_state.current_date_str = datetime.now(ZoneInfo("Europe/Bratislava")).strftime("%Y-%m-%d")
     st.session_state.session_loaded = st.session_state.current_user
     
-    # AI Skener gramáží v starých receptoch
+    # Skener starých gramáží
     migration_needed = False
     for food_name, food_data in st.session_state.custom_foods.items():
         if food_data.get("weight_g", 0) == 0:
@@ -209,14 +232,15 @@ if not st.session_state.onboarding_done:
         **Táto appka nie je obyčajná kalkulačka kalórií. Je to tvoj osobný, múdry AI asistent.**
         
         ### 🌟 Čo všetko s ňou dokážeš:
-        *   ✨ **AI Zápisník:** Už žiadne nudné klikanie surovín! Napíš *"150g losos s ryžou"* a AI jedlo sama roztriedi, odváži a vypočíta makrá.
-        *   🤖 **Osobný Radca:** Povie ti, čo presne by si si mala dať na večeru podľa toho, koľko bielkovín ti ešte dnes chýba a čo ťa čaká.
-        *   ⚖️ **Smart Porcie:** Sama prepočíta, akú presnú porciu si naložiť na tanier bez zložitého prepočítavania.
+        *   ✨ **AI Zápisník:** Napíš *"150g losos s ryžou"* a AI jedlo sama roztriedi a vypočíta makrá.
+        *   🤖 **Osobný Radca:** Povie ti, čo presne si dať na večeru podľa toho, čo ti dnes chýba.
+        *   🔬 **Zdravie a Mikrobióm:** Zanalyzuje, či je jedlo ultra-spracované a či kŕmi tvoje dobré baktérie.
+        *   ⚖️ **Smart Porcie:** Sama prepočíta, akú presnú porciu si naložiť na tanier, aby si splnila cieľ.
         """)
         
         st.info("Aby toto všetko fungovalo, aplikácia potrebuje prepojenie na umelú inteligenciu od Googlu. Vytvorenie kľúča je zadarmo a zaberie len 1 minútu.")
         st.markdown("""
-        1. Klikni na tento odkaz: 👉 **[Google AI Studio](https://aistudio.google.com/app/apikey)** (prihlás sa bežným Google účtom).
+        1. Klikni na odkaz: 👉 **[Google AI Studio](https://aistudio.google.com/app/apikey)** (prihlás sa bežným Google účtom).
         2. Klikni na modré tlačidlo **"Create API Key"** (Vytvoriť API kľúč).
         3. Skopíruj dlhý kód a vlož ho do políčka nižšie.
         """)
@@ -269,7 +293,6 @@ if not st.session_state.onboarding_done:
             time.sleep(2)
             st.rerun()
 
-    # Zastavíme vykresľovanie zvyšku aplikácie, kým používateľ nedokončí onboarding
     st.stop()
 
 def add_macros(kcal, p, c, f, fib, name, meal_type, date_str):
@@ -283,7 +306,6 @@ def add_macros(kcal, p, c, f, fib, name, meal_type, date_str):
     log["consumed"]["fats"] += f
     log["consumed"]["fiber"] += fib
     
-    # Použitie lokálneho časového pásma na ukladanie času konzumácie jedla
     log["history"].append({
         "id": str(time.time()), "name": name, "type": meal_type,
         "kcal": kcal, "p": p, "c": c, "f": f, "fib": fib,
@@ -341,30 +363,49 @@ def analyze_meal_to_recipe(meal_desc):
         return json.loads(txt)
     except Exception as e:
         if "429" in str(e):
-            st.warning("⏳ Prekročený limit Googlu! Zasahuje Smart Auto-Pilot: Čakám 35 sekúnd...")
+            st.warning("⏳ Prekročený limit Googlu! Čakám 35 sekúnd...")
             time.sleep(35)
             try:
                 response = model.generate_content(prompt)
                 txt = response.text.replace("```json", "").replace("```", "").strip()
                 return json.loads(txt)
-            except:
-                return None
-        st.error(f"Iná chyba: {e}")
+            except: return None
         return None
+
+def analyze_health_impact(meal_name, ingredients_dict):
+    ing_str = ", ".join([f"{k} ({v}x)" for k,v in ingredients_dict.items()])
+    prompt = f"""
+    Zanalyzuj jedlo "{meal_name}" a jeho suroviny: {ing_str}.
+    
+    Vyhodnoť ho z pohľadu najnovšej vedy o výžive v 3 krátkych, vizuálne pekných odsekoch:
+    1. 🚦 **NOVA Klasifikácia:** Je to celistvá potravina (skvelé) alebo ultra-spracovaná (zlé)? Prečo?
+    2. 🦠 **Mikrobióm:** Kŕmi toto jedlo dobré črevné baktérie? Obsahuje prebiotiká, probiotiká, vlákninu či polyfenoly?
+    3. 💡 **Biohacking Tip:** Ako toto jedlo ešte viac vylepšiť pre zdravie, hormóny a dlhovekosť?
+    
+    Píš veľmi priateľsky, povzbudivo, po slovensky. 
+    """
+    model = get_gemini_model()
+    if not model: return "Chýba API kľúč. Nastav si ho v profile."
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        if "429" in str(e): return "⏳ AI má príliš veľa požiadaviek (Limit 429), skús o minútku."
+        return f"Chyba pri analýze: {e}"
 
 def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals):
     eaten_str = ", ".join(logged_meals) if logged_meals else "zatiaľ vôbec nič"
     
     prompt = f"""
-    Môj denný cieľ ešte nie je splnený. Do konca dňa mi zostáva presne: {rem_kcal} kcal.
+    Do konca dňa mi zostáva presne: {rem_kcal} kcal.
     Z toho by malo byť približne: {rem_p}g bielkovín, {rem_c}g sacharidov a {rem_f}g tukov.
     
     Dnes som už mala tieto chody: {eaten_str}.
     
     Tvoja úloha:
-    1. Vydedukuj, aké logické chody (z klasických Raňajky, Obed, Večera, Snack) ma ešte dnes logicky čakajú. (Ak som mala Raňajky, čaká ma Obed, Snack, Večera. Ak som mala aj Obed, čaká ma Snack a Večera atď.)
-    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky rozdeľ len medzi TIETO ZOSTÁVAJÚCE chody, aby to dávalo zmysel.
-    3. Navrhni 2-3 konkrétne tipy na jedlo presne pre ten chod, ktorý ma čaká ako najbližší, aby som naplnila zvyšné makrá (hlavne bielkoviny). Navrhni aj vhodné veľkosti/gramáže, aby sa to zmestilo do plánu.
+    1. Vydedukuj, aké chody (Raňajky, Obed, Večera, Snack) ma ešte logicky čakajú. (Napr. ak som mala Raňajky a Obed, čaká ma Snack a Večera).
+    2. Zvyšné kalórie a makrá ({rem_kcal} kcal) logicky rozdeľ len medzi TIETO ZOSTÁVAJÚCE chody, aby to dávalo zmysel pre zdravú ženu.
+    3. Navrhni 2-3 konkrétne tipy na jedlo presne pre ten chod, ktorý ma čaká ako najbližší, aby som naplnila zvyšné makrá (hlavne bielkoviny). Navrhni aj vhodné veľkosti/gramáže.
     
     Buď veľmi stručný, povzbudivý, píš priateľsky po slovensky.
     """
@@ -392,9 +433,7 @@ with st.sidebar:
     if not st.session_state.gemini_key:
         st.warning("⚠️ Pridaj si API kľúč pre odomknutie funkcií.")
         
-    st.write("Tvoj kľúč sa bezpečne ukladá len do tvojho profilu.")
     new_key = st.text_input("Gemini API Key:", value=st.session_state.gemini_key, type="password")
-    
     if new_key != st.session_state.gemini_key:
         st.session_state.gemini_key = new_key.strip()
         save_db()
@@ -404,13 +443,14 @@ with st.sidebar:
         
     st.divider()
     if st.button("🚪 Odhlásiť sa", type="secondary", use_container_width=True):
+        st.query_params.clear()
         st.session_state.logged_in = False
         st.session_state.current_user = ""
         st.session_state.user_pin = ""
         del st.session_state["session_loaded"]
         st.rerun()
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📅 Môj Deň", "✨ AI Zápisník", "➕ Nové jedlo", "⚙️ Správa jedál", "👤 Môj Profil"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📅 Môj Deň", "✨ AI Zápisník", "➕ Nové jedlo", "⚙️ Správa jedál", "👤 Profil"])
 
 with tab1:
     col_date, _ = st.columns([1, 1])
@@ -433,7 +473,7 @@ with tab1:
         selected_food = st.selectbox("Vyhľadaj jedlo z databázy (Začni písať):", ["(Nevybraté)"] + list(st.session_state.custom_foods.keys()))
     with colB:
         meal_type = st.selectbox("Druh:", ["Raňajky", "Obed", "Večera", "Snack"])
-        portion = st.number_input("Veľkosť porcie (1.0 = celá)", min_value=0.1, value=1.0, step=0.1)
+        portion = st.number_input("Násobok porcie (1.0 = celá)", min_value=0.1, value=1.0, step=0.1)
     
     if selected_food != "(Nevybraté)":
         food_data = st.session_state.custom_foods[selected_food]
@@ -468,13 +508,20 @@ with tab1:
             if max_portion <= 0:
                 st.warning("⚠️ Na dnes už máš limit naplnený, táto porcia ťa dostane do prebytku.")
             elif portion > max_portion:
-                st.warning(f"⚠️ Pozor: Táto porcia ťa hodí do prebytku! Na dnes ti zostali kalórie už len na max **{max_portion}x** násobok.")
+                st.warning(f"⚠️ Pozor: Táto porcia ťa hodí do prebytku! Zmestila by sa ti maximálne **{max_portion}x** porcia.")
             else:
                 diff = abs(portion - ideal_portion)
                 if diff <= 0.2:
-                    st.success(f"✅ Skvelá voľba! Veľkosť {portion}x je pre tvoj '{meal_type}' úplne ideálna.")
+                    st.success(f"✅ Skvelá voľba! Veľkosť {portion}x je pre chod '{meal_type}' úplne ideálna.")
                 else:
-                    st.info(f"💡 Tip pre vyvážený deň: Ak si na '{meal_type}' dáš **{ideal_portion}x** porciu, zostane ti ideálny priestor aj pre ďalšie chody.")
+                    st.info(f"💡 Tip: Ak si pre chod '{meal_type}' naložíš ideálne **{ideal_portion}x** porciu, zostane ti presne miesto na zvyšok dňa.")
+
+        # Vplyv na zdravie priamo pri výbere jedla
+        with st.expander("🔬 Zistiť vplyv na zdravie a mikrobióm (NOVA)"):
+            if st.button("✨ Zanalyzovať zdravie tohto jedla", key=f"btn_h_{selected_food}"):
+                with st.spinner("AI skúma štruktúru potraviny..."):
+                    res = analyze_health_impact(selected_food, food_data["ingredients"])
+                    st.markdown(res)
 
         with colC:
             st.write("") 
@@ -662,8 +709,18 @@ with tab4:
             st.session_state.edit_recipe = st.session_state.custom_foods[edit_food]["ingredients"].copy()
             st.session_state.current_edit_food = edit_food
 
-        st.write("### 🥣 Úprava receptu")
-        new_recipe_name_input = st.text_input("Názov jedla:", value=edit_food)
+        st.write("### 🥣 Úprava receptu a Zdravotná analýza")
+        
+        # Zdravotný a mikrobiómový skener pre tento recept
+        with st.expander("🔬 AI Skóre zdravia a mikrobiómu (NOVA) pre tento recept"):
+            if st.button("✨ Zanalyzovať zdravotný profil tohto receptu", key="btn_health_recipe"):
+                with st.spinner("AI študuje najnovšie vedecké výskumy..."):
+                    health_res = analyze_health_impact(edit_food, st.session_state.edit_recipe)
+                    st.markdown(health_res)
+
+        st.divider()
+
+        new_recipe_name_input = st.text_input("Názov jedla (Prepíš pre zmenu názvu):", value=edit_food)
         
         colW1, colW2 = st.columns([3, 1])
         with colW1:
@@ -671,7 +728,7 @@ with tab4:
         with colW2:
             st.write("")
             st.write("")
-            if st.button("✨ Spočítaj váhu", use_container_width=True):
+            if st.button("✨ Spočítaj váhu z textu", use_container_width=True):
                 est = 0
                 for ing, amt in st.session_state.edit_recipe.items():
                     matches = re.findall(r'(\d+(?:[.,]\d+)?)\s*(g|ml)\b', ing.lower())
@@ -690,13 +747,11 @@ with tab4:
         st.write("**Suroviny:**")
         updated_recipe = {}
         for ing, amount in list(st.session_state.edit_recipe.items()):
-            # Vyťažíme aktuálnu hodnotu widgetu pre živý prepočet
             current_amt = st.session_state.get(f"amt_{ing}", amount)
             
             col1, col2, col3 = st.columns([4, 2, 1])
             with col1: 
                 st.markdown(f"**{ing}**")
-                # Výpis konkrétnych makroživín pre túto surovinu priamo pod názvom
                 if ing in st.session_state.ingredient_db:
                     d = st.session_state.ingredient_db[ing]
                     st.caption(f"*(🔥 {round(d['kcal'] * current_amt, 1)} kcal | B: {round(d['protein'] * current_amt, 1)}g | S: {round(d['carbs'] * current_amt, 1)}g | T: {round(d['fats'] * current_amt, 1)}g)*")
@@ -725,10 +780,8 @@ with tab4:
                                 "kcal": item["kcal"], "protein": item["protein"], 
                                 "carbs": item["carbs"], "fats": item["fats"], "fiber": item["fiber"]
                             }
-                            if new_name in st.session_state.edit_recipe:
-                                st.session_state.edit_recipe[new_name] += 1.0
-                            else:
-                                st.session_state.edit_recipe[new_name] = 1.0
+                            if new_name in st.session_state.edit_recipe: st.session_state.edit_recipe[new_name] += 1.0
+                            else: st.session_state.edit_recipe[new_name] = 1.0
                         
                         save_db()
                         st.success("Suroviny úspešne pridané do zoznamu!")
