@@ -55,7 +55,6 @@ def load_full_db():
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 
-                # Migrácia starej databázy na novú pre viacerých používateľov
                 if "users" not in data:
                     new_db = {"users": {}}
                     new_db["users"]["Juli"] = {
@@ -96,12 +95,9 @@ def save_db():
 
 full_db = load_full_db()
 
-if 'logged_in' not in st.session_state: 
-    st.session_state.logged_in = False
-if 'current_user' not in st.session_state: 
-    st.session_state.current_user = ""
-if 'user_pin' not in st.session_state: 
-    st.session_state.user_pin = ""
+if 'logged_in' not in st.session_state: st.session_state.logged_in = False
+if 'current_user' not in st.session_state: st.session_state.current_user = ""
+if 'user_pin' not in st.session_state: st.session_state.user_pin = ""
 
 if not st.session_state.logged_in:
     q_params = st.query_params
@@ -197,10 +193,10 @@ if "session_loaded" not in st.session_state or st.session_state.session_loaded !
     st.session_state.onboarding_done = user_data.get("onboarding_done", has_key)
     st.session_state.edit_recipe = {}
     
+    # Nastavenie nášho časového pásma
     st.session_state.current_date_str = datetime.now(ZoneInfo("Europe/Bratislava")).strftime("%Y-%m-%d")
     st.session_state.session_loaded = st.session_state.current_user
     
-    # Skener starých gramáží - presunie sa aj do novej DB struktúry
     migration_needed = False
     for food_name, food_data in st.session_state.custom_foods.items():
         if food_data.get("weight_g", 0) == 0:
@@ -399,7 +395,6 @@ def analyze_health_impact(meal_name, ingredients_dict):
 
 def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals, exclusions=""):
     eaten_str = ", ".join(logged_meals) if logged_meals else "zatiaľ vôbec nič"
-    
     excl_str = f"\n⚠️ KRITICKÉ PRAVIDLO: Používateľ NEJE tieto potraviny: {exclusions}. Absolútne sa im vo svojich návrhoch vyhni!" if exclusions.strip() else ""
     
     prompt = f"""
@@ -427,8 +422,7 @@ def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals, exclusions=""):
             try:
                 response = model.generate_content(prompt)
                 return response.text
-            except:
-                return "AI je dočasne preťažená, skús to za chvíľku."
+            except: return "AI je dočasne preťažená, skús to za chvíľku."
         return "Chyba spojenia s AI."
 
 with st.sidebar:
@@ -473,16 +467,12 @@ with tab1:
         
     current_log = st.session_state.daily_logs[date_str]
 
-    # ... existing code ...
-    current_log = st.session_state.daily_logs[date_str]
-
     st.subheader("🍽️ Pridať do tohto dňa")
     
     col_meal, _ = st.columns([1, 2])
     with col_meal:
         meal_type = st.selectbox("Druh jedla:", ["Raňajky", "Obed", "Večera", "Snack"])
         
-    # STREAMING_CHUNK:Vylepšenie výberu jedál na viacpoložkový (multiselect)
     selected_foods = st.multiselect("Vyhľadaj jedlá z databázy (Môžeš vybrať viacero naraz):", list(st.session_state.custom_foods.keys()))
     
     if selected_foods:
@@ -573,11 +563,7 @@ with tab1:
             st.rerun()
 
     st.divider()
-    st.subheader(f"📊 Tvoj deň ({selected_date.strftime('%d.%m.%Y')})")
-# ... existing code ...
-```eof
-
-    st.divider()
+    
     st.subheader(f"📊 Tvoj deň ({selected_date.strftime('%d.%m.%Y')})")
     
     c_kcal = current_log["consumed"]["kcal"]
