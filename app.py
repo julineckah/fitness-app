@@ -473,70 +473,109 @@ with tab1:
         
     current_log = st.session_state.daily_logs[date_str]
 
+    # ... existing code ...
+    current_log = st.session_state.daily_logs[date_str]
+
     st.subheader("🍽️ Pridať do tohto dňa")
-    colA, colB, colC = st.columns([2, 1, 1])
-    with colA:
-        selected_food = st.selectbox("Vyhľadaj jedlo z databázy (Začni písať):", ["(Nevybraté)"] + list(st.session_state.custom_foods.keys()))
-    with colB:
-        meal_type = st.selectbox("Druh:", ["Raňajky", "Obed", "Večera", "Snack"])
-        portion = st.number_input("Veľkosť porcie (1.0 = celá)", min_value=0.1, value=1.0, step=0.1)
     
-    if selected_food != "(Nevybraté)":
-        food_data = st.session_state.custom_foods[selected_food]
-        base_macros = calc_macros(food_data["ingredients"])
-        weight_g = food_data.get("weight_g", 0)
+    col_meal, _ = st.columns([1, 2])
+    with col_meal:
+        meal_type = st.selectbox("Druh jedla:", ["Raňajky", "Obed", "Večera", "Snack"])
         
-        p_kcal = base_macros['kcal'] * portion
-        p_p = base_macros['protein'] * portion
-        p_c = base_macros['carbs'] * portion
-        p_f = base_macros['fats'] * portion
-        p_fib = base_macros['fiber'] * portion
+    # STREAMING_CHUNK:Vylepšenie výberu jedál na viacpoložkový (multiselect)
+    selected_foods = st.multiselect("Vyhľadaj jedlá z databázy (Môžeš vybrať viacero naraz):", list(st.session_state.custom_foods.keys()))
+    
+    if selected_foods:
+        st.write("---")
+        st.write("**Porcie a hodnoty:**")
         
-        st.info(f"**Zloženie:** {food_data['desc']}")
+        meal_totals = {"kcal": 0, "p": 0, "c": 0, "f": 0, "fib": 0}
+        food_portions = {}
         
-        if weight_g > 0:
-            p_weight = weight_g * portion
-            st.write(f"⚖️ **Celý recept má:** {weight_g}g ➔ 🍽️ **Na tanier (váhu) si nalož:** **{int(p_weight)} g**")
+        for food in selected_foods:
+            food_data = st.session_state.custom_foods[food]
+            base_macros = calc_macros(food_data["ingredients"])
+            weight_g = food_data.get("weight_g", 0)
             
-        rem_kcal = max(0, GOALS['kcal'] - current_log["consumed"]["kcal"])
-        st.write(f"📊 **Hodnoty tvojej porcie ({portion}x):** {round(p_kcal,1)} kcal | B: {round(p_p,1)}g | S: {round(p_c,1)}g | T: {round(p_f,1)}g")
-        
-        meal_proportions = {"Raňajky": 0.25, "Obed": 0.35, "Večera": 0.30, "Snack": 0.10}
-        target_meal_kcal = GOALS['kcal'] * meal_proportions.get(meal_type, 0.25)
-        
-        if base_macros['kcal'] > 0:
-            ideal_portion = round(target_meal_kcal / base_macros['kcal'], 1)
-            max_portion = round(rem_kcal / base_macros['kcal'], 1)
-            
-            ideal_portion = min(ideal_portion, max_portion)
-            ideal_portion = max(0.1, ideal_portion)
-            
-            if max_portion <= 0:
-                st.warning("⚠️ Na dnes už máš limit naplnený, táto porcia ťa dostane do prebytku.")
-            elif portion > max_portion:
-                st.warning(f"⚠️ Pozor: Táto porcia ťa hodí do prebytku! Zmestila by sa ti maximálne **{max_portion}x** porcia.")
-            else:
-                diff = abs(portion - ideal_portion)
-                if diff <= 0.2:
-                    st.success(f"✅ Skvelá voľba! Veľkosť {portion}x je pre chod '{meal_type}' úplne ideálna.")
+            c1, c2, c3 = st.columns([2, 1, 2])
+            with c1:
+                st.markdown(f"**{food}**")
+                if weight_g > 0:
+                    st.caption(f"*(Celý recept: {weight_g}g)*")
                 else:
-                    st.info(f"💡 Tip: Ak si pre chod '{meal_type}' naložíš ideálne **{ideal_portion}x** porciu, zostane ti presne miesto na zvyšok dňa.")
+                    st.caption(f"*{food_data.get('desc', '')}*")
+            with c2:
+                port = st.number_input("Násobok", min_value=0.1, value=1.0, step=0.1, key=f"multi_{food}")
+                food_portions[food] = port
+            with c3:
+                p_kcal = base_macros['kcal'] * port
+                p_p = base_macros['protein'] * port
+                p_c = base_macros['carbs'] * port
+                p_f = base_macros['fats'] * port
+                p_fib = base_macros['fiber'] * port
+                
+                meal_totals["kcal"] += p_kcal
+                meal_totals["p"] += p_p
+                meal_totals["c"] += p_c
+                meal_totals["f"] += p_f
+                meal_totals["fib"] += p_fib
+                
+                weight_str = f" | ⚖️ **{int(weight_g * port)}g**" if weight_g > 0 else ""
+                st.write(f"🔥 {round(p_kcal,1)} kcal{weight_str}")
+                st.caption(f"B: {round(p_p,1)}g | S: {round(p_c,1)}g | T: {round(p_f,1)}g")
+        
+        st.info(f"**Tento chod ({meal_type}) bude mať spolu:** 🔥 {round(meal_totals['kcal'])} kcal | B: {round(meal_totals['p'])}g | S: {round(meal_totals['c'])}g | T: {round(meal_totals['f'])}g")
+        
+        rem_kcal = max(0, GOALS['kcal'] - current_log["consumed"]["kcal"])
+        
+        if meal_totals['kcal'] > rem_kcal:
+            st.warning(f"⚠️ Pozor: Tento chod ťa dostane do prebytku! Do konca dňa ti zostáva už len {int(rem_kcal)} kcal.")
+        else:
+            if len(selected_foods) == 1:
+                food_name = selected_foods[0]
+                b_kcal = calc_macros(st.session_state.custom_foods[food_name]["ingredients"])['kcal']
+                rec_portion = round(rem_kcal / b_kcal, 1) if b_kcal > 0 else 0
+                if rec_portion > 0:
+                    st.success(f"✅ Zmestí sa! (Tvoj dnešný limit by zvládol max {rec_portion}x porciu tohto jedla).")
+            else:
+                st.success("✅ Celá táto kombinácia sa ti krásne zmestí do dnešného limitu.")
 
         with st.expander("🔬 Zistiť vplyv na zdravie a mikrobióm (NOVA)"):
-            if st.button("✨ Zanalyzovať zdravie tohto jedla", key=f"btn_h_{selected_food}"):
-                with st.spinner("AI skúma štruktúru potraviny..."):
-                    res = analyze_health_impact(selected_food, food_data["ingredients"])
+            combined_ingredients = {}
+            for f in selected_foods:
+                for ing, amt in st.session_state.custom_foods[f]["ingredients"].items():
+                    combined_ingredients[ing] = combined_ingredients.get(ing, 0) + (amt * food_portions[f])
+            
+            combo_name = f"{meal_type}" if len(selected_foods) > 1 else selected_foods[0]
+            if st.button("✨ Zanalyzovať zdravie tohto chodu", key="btn_h_combo"):
+                with st.spinner("AI skúma kombináciu týchto potravín..."):
+                    res = analyze_health_impact(combo_name, combined_ingredients)
                     st.markdown(res)
 
-        with colC:
-            st.write("") 
-            st.write("") 
-            if st.button("➕ Zjesť", type="primary", use_container_width=True):
-                meal_name_to_save = selected_food if portion == 1.0 else f"{selected_food} ({portion}x)"
+        st.write("") 
+        if st.button(f"➕ Zjesť všetko ({len(selected_foods)} položiek)", type="primary", use_container_width=True):
+            for food in selected_foods:
+                port = food_portions[food]
+                food_data = st.session_state.custom_foods[food]
+                base_macros = calc_macros(food_data["ingredients"])
+                
+                p_kcal = base_macros['kcal'] * port
+                p_p = base_macros['protein'] * port
+                p_c = base_macros['carbs'] * port
+                p_f = base_macros['fats'] * port
+                p_fib = base_macros['fiber'] * port
+                
+                meal_name_to_save = food if port == 1.0 else f"{food} ({port}x)"
                 add_macros(p_kcal, p_p, p_c, p_f, p_fib, meal_name_to_save, meal_type, date_str)
-                st.success(f"Pridané a trvalo uložené!")
-                time.sleep(1)
-                st.rerun()
+                
+            st.success("Pridané a trvalo uložené!")
+            time.sleep(1)
+            st.rerun()
+
+    st.divider()
+    st.subheader(f"📊 Tvoj deň ({selected_date.strftime('%d.%m.%Y')})")
+# ... existing code ...
+```eof
 
     st.divider()
     st.subheader(f"📊 Tvoj deň ({selected_date.strftime('%d.%m.%Y')})")
