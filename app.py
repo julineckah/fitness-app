@@ -475,11 +475,15 @@ with tab1:
     with col_meal:
         meal_type = st.selectbox("Druh jedla:", ["Raňajky", "Obed", "Večera", "Snack"])
         
-    # Ak kľúč pre multiselect ešte neexistuje v pamäti, vytvoríme ho
-    if "food_multiselect" not in st.session_state:
-        st.session_state.food_multiselect = []
+    # Dynamický kľúč pre Multiselect zamedzuje chybám v Streamlite
+    if "ms_key" not in st.session_state:
+        st.session_state.ms_key = 0
 
-    selected_foods = st.multiselect("Vyhľadaj jedlá z databázy (Môžeš vybrať viacero naraz):", list(st.session_state.custom_foods.keys()), key="food_multiselect")
+    selected_foods = st.multiselect(
+        "Vyhľadaj jedlá z databázy (Môžeš vybrať viacero naraz):", 
+        list(st.session_state.custom_foods.keys()), 
+        key=f"food_multiselect_{st.session_state.ms_key}"
+    )
     
     if selected_foods:
         st.write("---")
@@ -564,8 +568,8 @@ with tab1:
                 meal_name_to_save = food if port == 1.0 else f"{food} ({port}x)"
                 add_macros(p_kcal, p_p, p_c, p_f, p_fib, meal_name_to_save, meal_type, date_str)
             
-            # Po zjedení vyčistíme multiselect
-            st.session_state.food_multiselect = []
+            # Týmto inkrementujeme kľúč, čo donúti Streamlit vygenerovať čistý multiselect!
+            st.session_state.ms_key += 1
             st.success("Pridané a trvalo uložené!")
             time.sleep(1)
             st.rerun()
