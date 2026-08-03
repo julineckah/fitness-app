@@ -15,7 +15,8 @@ def get_default_profile():
     return {
         "gender": "Žena", "age": 28, "weight": 71.0, "height": 175.0,
         "activity": "Mierne aktívny (1-3x týždenne tréning)", 
-        "goal": "Rekompozícia (Chudnúť tuk, naberať svaly)"
+        "goal": "Rekompozícia (Chudnúť tuk, naberať svaly)",
+        "exclusions": ""
     }
 
 def calculate_targets(profile):
@@ -285,7 +286,8 @@ if not st.session_state.onboarding_done:
         if st.button("Dokončiť nastavenie a vstúpiť do aplikácie 🚀", type="primary", use_container_width=True):
             st.session_state.profile = {
                 "gender": o_gender, "age": o_age, "weight": o_weight, 
-                "height": o_height, "activity": o_activity, "goal": o_goal
+                "height": o_height, "activity": o_activity, "goal": o_goal,
+                "exclusions": ""
             }
             st.session_state.onboarding_done = True
             save_db()
@@ -393,14 +395,16 @@ def analyze_health_impact(meal_name, ingredients_dict):
         if "429" in str(e): return "⏳ AI má príliš veľa požiadaviek (Limit 429), skús o minútku."
         return f"Chyba pri analýze: {e}"
 
-def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals):
+def ask_ai_advisor(rem_kcal, rem_p, rem_c, rem_f, logged_meals, exclusions=""):
     eaten_str = ", ".join(logged_meals) if logged_meals else "zatiaľ vôbec nič"
+    
+    excl_str = f"\n⚠️ KRITICKÉ PRAVIDLO: Používateľ NEJE tieto potraviny: {exclusions}. Absolútne sa im vo svojich návrhoch vyhni!" if exclusions.strip() else ""
     
     prompt = f"""
     Do konca dňa mi zostáva presne: {rem_kcal} kcal.
     Z toho by malo byť približne: {rem_p}g bielkovín, {rem_c}g sacharidov a {rem_f}g tukov.
     
-    Dnes som už mala tieto chody: {eaten_str}.
+    Dnes som už mala tieto chody: {eaten_str}.{excl_str}
     
     Tvoja úloha:
     1. Vydedukuj, aké chody (Raňajky, Obed, Večera, Snack) ma ešte logicky čakajú. (Napr. ak som mala Raňajky a Obed, čaká ma Snack a Večera).
@@ -594,7 +598,8 @@ with tab1:
                 st.success("Tvoje dnešné ciele sú už naplnené! Skvelá práca. 👏")
             else:
                 with st.spinner("AI číta tvoj denník a vymýšľa, čo ďalej..."):
-                    ai_tip = ask_ai_advisor(int(rem_kcal), int(rem_p), int(rem_c), int(rem_f), logged_meal_types)
+                    user_exclusions = st.session_state.profile.get("exclusions", "")
+                    ai_tip = ask_ai_advisor(int(rem_kcal), int(rem_p), int(rem_c), int(rem_f), logged_meal_types, user_exclusions)
                     st.info(ai_tip)
 
     st.divider()
@@ -654,23 +659,24 @@ with tab2:
             total_kcal += item['kcal']; total_p += item['protein']; total_c += item['carbs']; total_f += item['fats']; total_fib += item['fiber']
             
             ing_name = item["name"]
-            st.session_state.ingredient_db[ing_name] = {
-                "kcal": item["kcal"], "protein": item["protein"], "carbs": item["carbs"], "fats": item["fats"], "fiber": item["fiber"]
+        new_goal = st.selectbox("Hlavný cieľ (Rekompozícia = Svaly + Chudnutie):", [
+            "Chudnutie (Tuk)", 
+            "Rekompozícia (Chudnúť tuk, naberať svaly)", 
+            "Naberanie (Svaly)", 
+            "Udržiavanie váhy"
+        ], index=["Chudnutie (Tuk)", "Rekompozícia (Chudnúť tuk, naberať svaly)", "Naberanie (Svaly)", "Udržiavanie váhy"].index(p["goal"]))
+
+        new_exclusions = st.text_input("Čo neješ? (Alergie, intolerancie, neobľúbené jedlá, napr. 'ryby, huby'):", value=p.get("exclusions", ""))
+
+        if st.button("💾 Uložiť profil a prepočítať ciele", type="primary"):
+            st.session_state.profile = {
+                "gender": new_gender, "age": new_age, "weight": new_weight, 
+                "height": new_height, "activity": new_activity, "goal": new_goal,
+                "exclusions": new_exclusions
             }
-            new_ingredients[ing_name] = 1.0 
-            
-        st.info(f"**Spolu:** {round(total_kcal,1)} kcal | B: {round(total_p,1)}g | S: {round(total_c,1)}g | T: {round(total_f,1)}g | ⚖️ Odhad. hmotnosť: {total_weight}g")
-        st.divider()
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**A: Len zjesť DNES**")
-            meal_type_ai = st.selectbox("Ako aký chod?", ["Obed", "Raňajky", "Večera", "Snack"], key="ai_type")
-            if st.button("🍽️ Zjesť a nezakladať recept"):
-                add_macros(total_kcal, total_p, total_c, total_f, total_fib, "AI: " + st.session_state.ai_last_meal_name[:20]+"...", meal_type_ai, st.session_state.current_date_str)
-                del st.session_state["ai_last_meal"]
-                st.success("Zapísané do denníka!")
-                time.sleep(1)
+            save_db()
+            st.success("Profil uložený! Ciele boli prepočítané na najnovšiu váhu.")
+            time.sleep(1)
                 st.rerun()
                 
         with col2:
